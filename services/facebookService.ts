@@ -104,23 +104,43 @@ export const verifyPageAccessToken = async (pageId: string, accessToken: string)
   }
 };
 
-export const fetchPageConversations = async (pageId: string, pageAccessToken: string, limit: number = 100): Promise<Conversation[]> => {
-  const url = `https://graph.facebook.com/v22.0/${pageId}/conversations?fields=id,snippet,updated_time,participants{id,name,picture.type(large)},unread_count&limit=${limit}&access_token=${pageAccessToken}`;
+/**
+ * Enhanced fetch with limit and avatar suppression support.
+ */
+export const fetchPageConversations = async (
+  pageId: string, 
+  pageAccessToken: string, 
+  limit: number = 100,
+  includeAvatars: boolean = true
+): Promise<Conversation[]> => {
+  // If avatars aren't needed, don't even request participants to avoid User/picture calls
+  const fields = includeAvatars 
+    ? 'id,snippet,updated_time,participants{id,name,picture.type(large)},unread_count'
+    : 'id,snippet,updated_time,unread_count';
+
+  const url = `https://graph.facebook.com/v22.0/${pageId}/conversations?fields=${fields}&limit=${limit}&access_token=${pageAccessToken}`;
   const response = await fetch(url);
   const data = await response.json();
   
   if (data.error) throw new Error(data.error.message);
 
   return (data.data || []).map((conv: any) => {
-    const customer = conv.participants?.data?.find((p: any) => p.id !== pageId) || { name: 'Messenger User', id: 'unknown' };
-    const avatarUrl = customer.picture?.data?.url || 
-                     `https://graph.facebook.com/v22.0/${customer.id}/picture?type=large&access_token=${pageAccessToken}`;
+    let customerName = 'Messenger User';
+    let customerId = 'unknown';
+    let avatarUrl = '';
+
+    if (includeAvatars && conv.participants?.data) {
+      const customer = conv.participants.data.find((p: any) => p.id !== pageId) || { name: 'Messenger User', id: 'unknown' };
+      customerName = customer.name;
+      customerId = customer.id;
+      avatarUrl = customer.picture?.data?.url || '';
+    }
     
     return {
       id: conv.id,
       pageId: pageId,
-      customerId: customer.id,
-      customerName: customer.name,
+      customerId: customerId,
+      customerName: customerName,
       customerAvatar: avatarUrl,
       lastMessage: conv.snippet || 'No message content',
       lastTimestamp: conv.updated_time,
@@ -143,7 +163,6 @@ export const fetchThreadMessages = async (conversationId: string, pageId: string
   if (data.error) throw new Error(data.error.message);
 
   return (data.data || []).map((msg: any) => {
-    // CRITICAL: Prevent mirroring by checking if the sender ID matches the PAGE ID
     const isFromPage = msg.from.id === pageId;
     return {
       id: msg.id,
