@@ -66,7 +66,7 @@ const InboxView: React.FC = () => {
   };
 
   return (
-    <div className="flex h-[calc(100vh-80px)] bg-white overflow-hidden rounded-3xl md:rounded-[40px] border border-slate-100 shadow-2xl shadow-slate-200/40">
+    <div className="flex h-[calc(100vh-40px)] bg-white overflow-hidden rounded-3xl md:rounded-[40px] border border-slate-100 shadow-2xl shadow-slate-200/40">
       <div className={`w-full md:w-80 border-r border-slate-100 flex flex-col bg-slate-50/30 ${activeConvId ? 'hidden md:flex' : 'flex'}`}>
         <div className="p-4 md:p-6 space-y-4 shrink-0">
           <div className="flex items-center justify-between">
@@ -113,7 +113,7 @@ const InboxView: React.FC = () => {
           {!isHistorySynced && (
              <div className="mx-2 mb-4 p-3 bg-blue-50 border border-blue-100 rounded-2xl flex items-center gap-3">
                 <Zap size={14} className="text-blue-600 shrink-0" />
-                <p className="text-[9px] font-bold text-blue-700 uppercase tracking-tight">Delta Mode: Only recent chats are visible.</p>
+                <p className="text-[9px] font-bold text-blue-700 uppercase tracking-tight">Real-Time Mode Active</p>
              </div>
           )}
           
@@ -166,7 +166,7 @@ const InboxView: React.FC = () => {
           ) : (
             <div className="flex flex-col items-center justify-center py-20 text-slate-300">
               <MessageSquareOff size={32} className="opacity-20 mb-3" />
-              <p className="text-[10px] font-black uppercase tracking-widest opacity-40 text-center px-4">No active chats. Sync Meta for history.</p>
+              <p className="text-[10px] font-black uppercase tracking-widest opacity-40 text-center px-4">Waiting for new activity...</p>
             </div>
           )}
         </div>
@@ -188,9 +188,9 @@ const InboxView: React.FC = () => {
              <div className="w-20 h-20 bg-white rounded-[32px] flex items-center justify-center mb-6 shadow-sm border border-slate-100">
                <MessageSquareOff size={32} className="text-slate-200" />
              </div>
-             <h3 className="text-slate-800 font-bold mb-2">Omni-Channel Inbox</h3>
+             <h3 className="text-slate-800 font-bold mb-2">Manual Sync Required</h3>
              <p className="text-xs text-slate-400 max-w-[200px] leading-relaxed">
-               Select a real-time delta thread or sync deep history from Meta.
+               New chats appear automatically. Press Sync Meta to pull historical threads.
              </p>
           </div>
         )}
