@@ -18,7 +18,9 @@ import {
   Terminal,
   ArrowRight,
   Zap,
-  Loader2
+  Loader2,
+  PlusCircle,
+  Circle
 } from 'lucide-react';
 import { useApp } from '../../store/AppContext';
 import { loginWithFacebook, fetchUserPages, initFacebookSDK, isSecureOrigin, isAppIdConfigured } from '../../services/facebookService';
@@ -30,6 +32,8 @@ const PageSettings: React.FC = () => {
   const [sdkReady, setSdkReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [assigningPage, setAssigningPage] = useState<FacebookPage | null>(null);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [availablePages, setAvailablePages] = useState<FacebookPage[]>([]);
   const [verifyingPageId, setVerifyingPageId] = useState<string | null>(null);
   const [verificationResult, setVerificationResult] = useState<{id: string, success: boolean} | null>(null);
   
@@ -44,7 +48,7 @@ const PageSettings: React.FC = () => {
     initFacebookSDK().then(() => setSdkReady(true));
   }, []);
 
-  const handleConnect = async () => {
+  const handleConnectAccount = async () => {
     if (!sdkReady) return;
     setIsConnecting(true);
     setError(null);
@@ -54,11 +58,10 @@ const PageSettings: React.FC = () => {
       const userPages = await fetchUserPages();
       
       if (userPages.length === 0) {
-        setError("Login successful, but no managed pages found. Ensure you are an Admin of the pages and they are linked to the app.");
+        setError("Login successful, but no managed pages found. Ensure you are an Admin of the pages.");
       } else {
-        for (const p of userPages) {
-          await addPage(p);
-        }
+        setAvailablePages(userPages);
+        setShowImportModal(true);
       }
     } catch (err: any) {
       console.error("FB Login Error Details:", err);
@@ -68,14 +71,21 @@ const PageSettings: React.FC = () => {
     }
   };
 
+  const togglePageSelection = async (page: FacebookPage) => {
+    const isAlreadyAdded = pages.some(p => p.id === page.id);
+    if (isAlreadyAdded) {
+      await removePage(page.id);
+    } else {
+      await addPage(page);
+    }
+  };
+
   const handleVerify = async (pageId: string) => {
     setVerifyingPageId(pageId);
     setVerificationResult(null);
     const success = await verifyPageConnection(pageId);
     setVerificationResult({ id: pageId, success });
     setVerifyingPageId(null);
-    
-    // Clear result after 3s
     setTimeout(() => setVerificationResult(null), 3000);
   };
 
@@ -114,14 +124,14 @@ const PageSettings: React.FC = () => {
         </div>
         <div className="flex flex-col items-end gap-2">
            <button 
-            onClick={handleConnect}
+            onClick={handleConnectAccount}
             disabled={isConnecting || !sdkReady || !isConfigured || !isSecure}
             className={`flex items-center justify-center gap-3 px-10 py-5 rounded-3xl font-black uppercase tracking-[0.1em] transition-all shadow-xl group active:scale-95 ${
               isJSSDKError ? 'bg-amber-500 hover:bg-amber-600' : 'bg-[#1877F2] hover:bg-[#166fe5]'
             } text-white disabled:opacity-50`}
           >
-            <Facebook size={20} className="group-hover:rotate-12 transition-transform" /> 
-            {isConnecting ? 'Waiting for Meta...' : 'Connect Facebook Account'}
+            <PlusCircle size={20} className="group-hover:rotate-12 transition-transform" /> 
+            {isConnecting ? 'Opening Meta...' : 'Add Another Page'}
           </button>
         </div>
       </div>
@@ -132,57 +142,16 @@ const PageSettings: React.FC = () => {
             <div className={`p-6 rounded-3xl h-fit flex-shrink-0 flex items-center justify-center ${isJSSDKError ? 'bg-amber-100 text-amber-600' : 'bg-red-100 text-red-600'}`}>
               {isJSSDKError ? <ShieldAlert size={48} strokeWidth={2.5} /> : <AlertCircle size={48} strokeWidth={2.5} />}
             </div>
-            
-            <div className="space-y-6 flex-1">
-              <div className="space-y-2">
-                <h3 className={`text-3xl font-black uppercase tracking-tight ${isJSSDKError ? 'text-amber-800' : 'text-red-800'}`}>
-                  {isJSSDKError ? 'Action Required: Enable JSSDK' : 'Connection Blocked'}
-                </h3>
-                <p className={`text-lg leading-relaxed font-medium ${isJSSDKError ? 'text-amber-700/80' : 'text-red-700/80'}`}>
-                  {error}
-                </p>
-              </div>
-              
-              {isJSSDKError && (
-                <div className="bg-white p-8 rounded-[32px] border-2 border-amber-200/50 space-y-8 shadow-inner">
-                   <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-amber-500 text-white flex items-center justify-center font-black text-sm">1</div>
-                      <p className="text-amber-900 font-bold">Open your Meta App Dashboard</p>
-                   </div>
-                   <a 
-                    href="https://developers.facebook.com/apps/1148755260666274/fb-login/settings/" 
-                    target="_blank" 
-                    className="inline-flex items-center gap-3 px-8 py-4 bg-amber-600 text-white rounded-2xl font-bold hover:bg-amber-700 transition-all shadow-lg"
-                   >
-                     Go to Login Settings <LinkIcon size={18}/>
-                   </a>
-
-                   <div className="space-y-4 pt-4">
-                     <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-amber-500 text-white flex items-center justify-center font-black text-sm">2</div>
-                        <p className="text-amber-900 font-bold">Locate the toggle below and switch to <span className="text-emerald-600">YES</span>:</p>
-                     </div>
-                     <div className="bg-slate-50 p-6 rounded-2xl border-2 border-slate-100 flex items-center justify-between">
-                        <span className="font-bold text-slate-700">Login with the JavaScript SDK</span>
-                        <div className="w-14 h-7 bg-emerald-500 rounded-full flex items-center px-1">
-                           <div className="w-5 h-5 bg-white rounded-full ml-auto shadow-sm"></div>
-                        </div>
-                     </div>
-                   </div>
-
-                   <div className="flex items-center gap-3 pt-4">
-                      <div className="w-8 h-8 rounded-full bg-amber-500 text-white flex items-center justify-center font-black text-sm">3</div>
-                      <p className="text-amber-900 font-bold">Add this domain to <span className="underline italic">"Allowed Domains for the JavaScript SDK"</span> list and Save.</p>
-                   </div>
-                </div>
-              )}
+            <div className="space-y-6 flex-1 text-slate-700">
+               <h3 className="text-3xl font-black uppercase tracking-tight">{isJSSDKError ? 'SDK Not Configured' : 'Connection Error'}</h3>
+               <p className="text-lg">{error}</p>
             </div>
           </div>
         </div>
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {pages.map((page) => (
+        {pages.length > 0 ? pages.map((page) => (
           <div key={page.id} className="bg-white rounded-[48px] border border-slate-100 shadow-sm overflow-hidden flex flex-col group hover:shadow-2xl hover:border-blue-100 transition-all duration-500">
             <div className="p-10">
               <div className="flex items-center justify-between mb-8">
@@ -249,9 +218,63 @@ const PageSettings: React.FC = () => {
                </button>
             </div>
           </div>
-        ))}
+        )) : (
+          <div className="col-span-full py-20 bg-white rounded-[48px] border-2 border-dashed border-slate-100 flex flex-col items-center justify-center text-slate-300">
+            <Facebook size={64} className="mb-6 opacity-20" />
+            <p className="font-bold uppercase tracking-widest text-sm opacity-40">No Facebook Pages linked to this portal.</p>
+          </div>
+        )}
       </div>
 
+      {/* Import Modal */}
+      {showImportModal && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-xl z-[200] flex items-center justify-center p-6 animate-in fade-in">
+           <div className="bg-white rounded-[56px] shadow-2xl w-full max-w-lg p-12 animate-in zoom-in-95">
+              <div className="flex justify-between items-center mb-8">
+                 <h3 className="text-3xl font-black text-slate-800 tracking-tight">Add Assets</h3>
+                 <button onClick={() => setShowImportModal(false)} className="p-3 text-slate-400 hover:bg-slate-50 rounded-full transition-colors"><X size={32} /></button>
+              </div>
+              <p className="text-slate-500 mb-10 text-lg font-medium leading-relaxed">Select the Facebook Pages you want to manage within the portal.</p>
+              
+              <div className="space-y-3 max-h-[400px] overflow-y-auto pr-4 custom-scrollbar">
+                 {availablePages.map(page => {
+                   const isActive = pages.some(p => p.id === page.id);
+                   return (
+                     <button 
+                        key={page.id}
+                        onClick={() => togglePageSelection(page)}
+                        className={`w-full flex items-center justify-between p-6 rounded-[32px] border-2 transition-all group ${
+                          isActive 
+                            ? 'bg-blue-600 border-blue-600 text-white shadow-xl shadow-blue-200' 
+                            : 'bg-slate-50 border-slate-100 hover:border-blue-400 text-slate-800'
+                        }`}
+                     >
+                        <div className="flex items-center gap-4 text-left">
+                           <div className={`p-3 rounded-2xl ${isActive ? 'bg-white/20' : 'bg-white'}`}>
+                              <Facebook size={24} className={isActive ? 'text-white' : 'text-[#1877F2]'} />
+                           </div>
+                           <div>
+                              <p className="font-black text-lg">{page.name}</p>
+                              <p className={`text-[10px] font-black uppercase tracking-widest opacity-60 ${isActive ? 'text-white' : 'text-slate-400'}`}>{page.category}</p>
+                           </div>
+                        </div>
+                        {isActive ? <CheckCircle2 size={24} /> : <Circle size={24} className="opacity-20" />}
+                     </button>
+                   );
+                 })}
+              </div>
+
+              <button 
+                onClick={() => setShowImportModal(false)}
+                className="w-full mt-10 py-6 bg-slate-900 text-white rounded-[32px] font-black uppercase tracking-widest hover:bg-blue-600 transition-all shadow-2xl active:scale-95"
+              >
+                Sync Selected Pages
+              </button>
+           </div>
+        </div>
+      )}
+
+      {/* Agent Assignment Modal */}
       {assigningPage && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-xl z-[100] flex items-center justify-center p-6 animate-in fade-in duration-300">
            <div className="bg-white rounded-[56px] shadow-[0_0_100px_rgba(0,0,0,0.2)] w-full max-w-md p-12 animate-in zoom-in-95 duration-300">
