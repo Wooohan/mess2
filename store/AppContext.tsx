@@ -47,6 +47,18 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 const USER_SESSION_KEY = 'messengerflow_session_v1';
 
+// Helper to fetch image as binary Blob for persistence
+const fetchAsBlob = async (url: string): Promise<Blob | null> => {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error('Network response was not ok');
+    return await response.blob();
+  } catch (e) {
+    console.warn("Could not fetch avatar as binary:", url, e);
+    return null;
+  }
+};
+
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [dbStatus, setDbStatus] = useState<'connected' | 'syncing' | 'error' | 'initializing'>('initializing');
   const [pages, setPages] = useState<FacebookPage[]>([]);
@@ -127,20 +139,29 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     };
   }, [sortedConversations, currentUser, pages]);
 
-  const removeAgent = async (id: string) => {
-    if (id === currentUser?.id) return; 
-    await dbService.delete('agents', id);
-    setAgents(prev => prev.filter(a => a.id !== id));
-  };
-
   const syncMetaConversations = async () => {
     if (pages.length === 0) return;
     setDbStatus('syncing');
     try {
+      const existingConvs = await dbService.getAll<Conversation>('conversations');
+      const existingMap = new Map(existingConvs.map(c => [c.id, c]));
+
       for (const page of pages) {
         if (!page.accessToken) continue;
         const metaConvs = await fetchPageConversations(page.id, page.accessToken);
+        
         for (const conv of metaConvs) {
+          const local = existingMap.get(conv.id);
+          
+          // PERSISTENCE FIX: Check if we have a binary blob locally
+          if (local && local.customerAvatarBlob) {
+            conv.customerAvatarBlob = local.customerAvatarBlob;
+          } else if (conv.customerAvatar) {
+            // First time seeing this user or missing blob, fetch and store as binary
+            const blob = await fetchAsBlob(conv.customerAvatar);
+            if (blob) conv.customerAvatarBlob = blob;
+          }
+
           await dbService.put('conversations', conv);
         }
       }
@@ -212,6 +233,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     try {
       const metaConvs = await fetchPageConversations(page.id, page.accessToken);
       for (const conv of metaConvs) {
+        // Initial sync: fetch blob
+        if (conv.customerAvatar) {
+          const blob = await fetchAsBlob(conv.customerAvatar);
+          if (blob) conv.customerAvatarBlob = blob;
+        }
         await dbService.put('conversations', conv);
       }
       setConversations(await dbService.getAll<Conversation>('conversations'));
@@ -225,6 +251,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setDbStatus('syncing');
     setPages(prev => prev.filter(p => p.id !== id));
     await dbService.delete('pages', id);
+    setDbStatus('connected');
+  };
+
+  const removeAgent = async (id: string) => {
+    setDbStatus('syncing');
+    setAgents(prev => prev.filter(a => a.id !== id));
+    await dbService.delete('agents', id);
     setDbStatus('connected');
   };
 
