@@ -10,7 +10,7 @@ interface ChatWindowProps {
 }
 
 const CachedAvatar: React.FC<{ conversation: Conversation, className?: string }> = ({ conversation, className }) => {
-  const [url, setUrl] = useState<string>(conversation.customerAvatar);
+  const [url, setUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (conversation.customerAvatarBlob) {
@@ -18,18 +18,23 @@ const CachedAvatar: React.FC<{ conversation: Conversation, className?: string }>
       setUrl(objectUrl);
       return () => URL.revokeObjectURL(objectUrl);
     }
-    setUrl(conversation.customerAvatar);
-  }, [conversation.customerAvatarBlob, conversation.customerAvatar]);
+    setUrl(null);
+  }, [conversation.customerAvatarBlob]);
+
+  if (url) {
+    return (
+      <img 
+        src={url} 
+        className={className} 
+        alt="" 
+      />
+    );
+  }
 
   return (
-    <img 
-      src={url} 
-      className={className} 
-      alt="" 
-      onError={(e) => {
-        (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(conversation.customerName)}&background=random`;
-      }}
-    />
+    <div className={`${className} bg-slate-200 flex items-center justify-center text-slate-400 font-bold text-sm uppercase overflow-hidden`}>
+      {conversation.customerName.charAt(0)}
+    </div>
   );
 };
 
@@ -58,7 +63,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
       if (!page?.accessToken || !isMounted) return;
 
       let sinceTimestamp: number | undefined = undefined;
-      // If we haven't manually synced, only pull messages from the last 10 minutes to avoid big history pulls
+      // If history isn't synced, only pull messages from the last 10 minutes
       if (!isHistorySynced && isInitial) {
         sinceTimestamp = Math.floor(Date.now() / 1000) - 600; 
       }
@@ -106,7 +111,8 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
   };
 
   const handleSend = async (forcedText?: string) => {
-    const textToSubmit = (forcedText || inputText).trim();
+    // FIXED: Correctly capture forcedText (from Library buttons) or inputText
+    const textToSubmit = (typeof forcedText === 'string' ? forcedText : inputText).trim();
     if (!textToSubmit || isSending) return;
     
     if (!blockRestrictedLinks(textToSubmit)) {
@@ -122,7 +128,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
       if (currentPage && currentPage.accessToken) {
         const response = await sendPageMessage(conversation.customerId, textToSubmit, currentPage.accessToken);
         
-        // Use the actual ID returned by Meta to prevent duplicates during next poll
+        // Optimistic update using exact message ID from Meta to prevent mirroring and double bubbles
         const newMessage: Message = {
           id: response.message_id || `msg-${Date.now()}`,
           conversationId: conversation.id,
@@ -135,7 +141,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
         };
         await bulkAddMessages([newMessage]);
       }
-      if (!forcedText) setInputText('');
+      if (typeof forcedText !== 'string') setInputText('');
       setShowLibrary(false);
     } catch (err: any) {
       setLastError(err.message || 'Meta API Error');
@@ -216,7 +222,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
             <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center shadow-sm border border-slate-100 mb-4">
               <MessageSquare size={24} className="opacity-20" />
             </div>
-            <p className="text-[10px] font-bold uppercase tracking-widest opacity-40">Secure Messaging Socket Active</p>
+            <p className="text-[10px] font-bold uppercase tracking-widest opacity-40">Direct Messenger Socket Active</p>
             {!isHistorySynced && <p className="text-[8px] font-black uppercase tracking-tighter text-blue-500 mt-2">Sync Meta for historical records</p>}
           </div>
         )}
