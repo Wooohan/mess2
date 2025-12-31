@@ -105,23 +105,21 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     initDatabase();
   }, []);
 
-  // BACKGROUND DELTA SYNC: Periodically catch only the most recent conversations (Limit 10)
+  // BACKGROUND DELTA SYNC: Periodically catch only the most recent conversations (Limit 5)
   useEffect(() => {
     if (pages.length === 0) return;
     
     const deltaSync = async () => {
-      // Use existingMap to check what we already have
       const existingMap = new Map(conversations.map(c => [c.id, c]));
-      const newConvsFound: Conversation[] = [];
+      let changesDetected = false;
 
       for (const page of pages) {
         if (!page.accessToken) continue;
         try {
-          // Delta sync: Only fetch last 10 conversations to detect new activity
-          const metaConvs = await fetchPageConversations(page.id, page.accessToken, 10);
+          // Delta sync: Extremely lightweight (last 5 active chats)
+          const metaConvs = await fetchPageConversations(page.id, page.accessToken, 5);
           for (const conv of metaConvs) {
             const local = existingMap.get(conv.id);
-            // If it's a new conversation or updated, we track it
             if (!local || local.lastTimestamp !== conv.lastTimestamp) {
               if (local && local.customerAvatarBlob) {
                 conv.customerAvatarBlob = local.customerAvatarBlob;
@@ -130,7 +128,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                 if (blob) conv.customerAvatarBlob = blob;
               }
               await dbService.put('conversations', conv);
-              newConvsFound.push(conv);
+              changesDetected = true;
             }
           }
         } catch (e) {
@@ -138,13 +136,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         }
       }
 
-      if (newConvsFound.length > 0) {
+      if (changesDetected) {
         const all = await dbService.getAll<Conversation>('conversations');
         setConversations(all);
       }
     };
 
-    const interval = setInterval(deltaSync, 15000); // Check for new activity every 15s
+    const interval = setInterval(deltaSync, 10000); 
     return () => clearInterval(interval);
   }, [pages, conversations.length]);
 
@@ -194,7 +192,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
       for (const page of pages) {
         if (!page.accessToken) continue;
-        // FULL SYNC: Fetch up to 100 conversations
+        // FULL SYNC: Fetch up to 100 conversations to get all 16+ chats
         const metaConvs = await fetchPageConversations(page.id, page.accessToken, 100);
         
         for (const conv of metaConvs) {
