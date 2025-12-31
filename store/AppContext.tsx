@@ -51,6 +51,7 @@ const USER_SESSION_KEY = 'messengerflow_session_v1';
 const SYNCED_KEY = 'messengerflow_is_synced';
 
 const fetchAsBlob = async (url: string): Promise<Blob | null> => {
+  if (!url) return null;
   try {
     const response = await fetch(url);
     if (!response.ok) throw new Error('Network response was not ok');
@@ -71,6 +72,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [approvedMedia, setApprovedMedia] = useState<ApprovedMedia[]>([]);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isHistorySynced, setIsHistorySynced] = useState(localStorage.getItem(SYNCED_KEY) === 'true');
+  
+  // Track exactly when this portal session started to filter out background history
+  const [portalActivationTime] = useState<number>(Date.now());
 
   useEffect(() => {
     const initDatabase = async () => {
@@ -105,7 +109,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     initDatabase();
   }, []);
 
-  // BACKGROUND DELTA SYNC: Periodically catch only the most recent conversations (Limit 5)
+  // BACKGROUND DELTA SYNC: Periodically catch only truly new conversations
   useEffect(() => {
     if (pages.length === 0) return;
     
@@ -116,16 +120,23 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       for (const page of pages) {
         if (!page.accessToken) continue;
         try {
-          // Delta sync: Extremely lightweight (last 5 active chats)
-          const metaConvs = await fetchPageConversations(page.id, page.accessToken, 5);
+          // Poll for just the most recent 5 conversations
+          const metaConvs = await fetchPageConversations(page.id, page.accessToken, 5, false);
           for (const conv of metaConvs) {
             const local = existingMap.get(conv.id);
+            const convTime = new Date(conv.lastTimestamp).getTime();
+
+            // REQUIREMENT: If history isn't synced, ignore conversations updated BEFORE portal activation.
+            if (!isHistorySynced && convTime < portalActivationTime) {
+              continue; 
+            }
+
             if (!local || local.lastTimestamp !== conv.lastTimestamp) {
-              if (local && local.customerAvatarBlob) {
+              if (local) {
+                conv.customerName = local.customerName;
+                conv.customerId = local.customerId;
+                conv.customerAvatar = local.customerAvatar;
                 conv.customerAvatarBlob = local.customerAvatarBlob;
-              } else if (conv.customerAvatar) {
-                const blob = await fetchAsBlob(conv.customerAvatar);
-                if (blob) conv.customerAvatarBlob = blob;
               }
               await dbService.put('conversations', conv);
               changesDetected = true;
@@ -144,7 +155,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     const interval = setInterval(deltaSync, 10000); 
     return () => clearInterval(interval);
-  }, [pages, conversations.length]);
+  }, [pages, conversations.length, isHistorySynced, portalActivationTime]);
 
   const sortedConversations = useMemo(() => {
     return [...conversations].sort((a, b) => 
@@ -192,8 +203,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
       for (const page of pages) {
         if (!page.accessToken) continue;
-        // FULL SYNC: Fetch up to 100 conversations to get all 16+ chats
-        const metaConvs = await fetchPageConversations(page.id, page.accessToken, 100);
+        // MANUAL SYNC: Higher limit (100) to ensure we get all 16+ chats
+        const metaConvs = await fetchPageConversations(page.id, page.accessToken, 100, true);
         
         for (const conv of metaConvs) {
           const local = existingMap.get(conv.id);
@@ -226,6 +237,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setMessages([]);
       setIsHistorySynced(false);
       localStorage.setItem(SYNCED_KEY, 'false');
+      // Reset portal activation time to current so background sync doesn't immediately pull back the old chats
+      window.location.reload(); 
     } catch (e) {
       console.error("Clear failed", e);
     } finally {
@@ -276,15 +289,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     });
     await dbService.put('pages', page);
     try {
-      // Initial connection only gets top 5 conversations to keep it snappy
-      const metaConvs = await fetchPageConversations(page.id, page.accessToken, 5);
-      for (const conv of metaConvs) {
-        if (conv.customerAvatar) {
-          const blob = await fetchAsBlob(conv.customerAvatar);
-          if (blob) conv.customerAvatarBlob = blob;
-        }
-        await dbService.put('conversations', conv);
-      }
+      // Initial connection is empty by default (Delta mode)
       setConversations(await dbService.getAll<Conversation>('conversations'));
     } catch (e) {
       console.error("Initial sync for page failed", e);
