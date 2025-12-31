@@ -57,11 +57,10 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
       const page = pages.find(p => p.id === conversation.pageId);
       if (!page?.accessToken || !isMounted) return;
 
-      // DELTA LOGIC: If history isn't synced, only pull messages from the last 5 minutes.
-      // This satisfies the "don't request old messages unless fetch meta is pressed" requirement.
       let sinceTimestamp: number | undefined = undefined;
+      // If we haven't manually synced, only pull messages from the last 10 minutes to avoid big history pulls
       if (!isHistorySynced && isInitial) {
-        sinceTimestamp = Math.floor(Date.now() / 1000) - 300; // 5 minutes ago
+        sinceTimestamp = Math.floor(Date.now() / 1000) - 600; 
       }
 
       if (isInitial && chatMessages.length === 0) setIsLoadingMessages(true);
@@ -79,7 +78,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
     };
 
     syncThread(true);
-    const poll = setInterval(() => syncThread(false), 10000); 
+    const poll = setInterval(() => syncThread(false), 8000); 
     
     return () => {
       isMounted = false;
@@ -119,22 +118,23 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
     setLastError(null);
     const currentPage = pages.find(p => p.id === conversation.pageId);
     
-    const newMessage: Message = {
-      id: `msg-${Date.now()}`,
-      conversationId: conversation.id,
-      senderId: currentUser?.id || 'unknown',
-      senderName: currentUser?.name || 'Agent',
-      text: textToSubmit,
-      timestamp: new Date().toISOString(),
-      isIncoming: false,
-      isRead: true,
-    };
-
     try {
       if (currentPage && currentPage.accessToken) {
-        await sendPageMessage(conversation.customerId, textToSubmit, currentPage.accessToken);
+        const response = await sendPageMessage(conversation.customerId, textToSubmit, currentPage.accessToken);
+        
+        // Use the actual ID returned by Meta to prevent duplicates during next poll
+        const newMessage: Message = {
+          id: response.message_id || `msg-${Date.now()}`,
+          conversationId: conversation.id,
+          senderId: currentPage.id,
+          senderName: currentPage.name,
+          text: textToSubmit,
+          timestamp: new Date().toISOString(),
+          isIncoming: false,
+          isRead: true,
+        };
+        await bulkAddMessages([newMessage]);
       }
-      await bulkAddMessages([newMessage]);
       if (!forcedText) setInputText('');
       setShowLibrary(false);
     } catch (err: any) {
@@ -216,14 +216,14 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
             <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center shadow-sm border border-slate-100 mb-4">
               <MessageSquare size={24} className="opacity-20" />
             </div>
-            <p className="text-[10px] font-bold uppercase tracking-widest opacity-40">Delta Channel Active</p>
-            {!isHistorySynced && <p className="text-[8px] font-black uppercase tracking-tighter text-blue-500 mt-2">Sync History for old messages</p>}
+            <p className="text-[10px] font-bold uppercase tracking-widest opacity-40">Secure Messaging Socket Active</p>
+            {!isHistorySynced && <p className="text-[8px] font-black uppercase tracking-tighter text-blue-500 mt-2">Sync Meta for historical records</p>}
           </div>
         )}
         {isLoadingMessages && chatMessages.length === 0 && (
           <div className="flex flex-col items-center justify-center py-20 text-blue-400/50">
             <Loader2 size={32} className="animate-spin mb-4" />
-            <p className="text-[10px] font-black uppercase tracking-widest">Opening Secure Channel...</p>
+            <p className="text-[10px] font-black uppercase tracking-widest">Bridging Facebook Channel...</p>
           </div>
         )}
         {chatMessages.map((msg) => (
