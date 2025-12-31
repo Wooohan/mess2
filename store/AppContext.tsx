@@ -43,10 +43,12 @@ interface AppContextType {
   dashboardStats: DashboardStats;
   dbStatus: 'connected' | 'syncing' | 'error' | 'initializing';
   clearLocalChats: () => Promise<void>;
+  isHistorySynced: boolean;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 const USER_SESSION_KEY = 'messengerflow_session_v1';
+const SYNCED_KEY = 'messengerflow_is_synced';
 
 const fetchAsBlob = async (url: string): Promise<Blob | null> => {
   try {
@@ -68,6 +70,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [approvedLinks, setApprovedLinks] = useState<ApprovedLink[]>([]);
   const [approvedMedia, setApprovedMedia] = useState<ApprovedMedia[]>([]);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isHistorySynced, setIsHistorySynced] = useState(localStorage.getItem(SYNCED_KEY) === 'true');
 
   useEffect(() => {
     const initDatabase = async () => {
@@ -101,6 +104,49 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     };
     initDatabase();
   }, []);
+
+  // BACKGROUND DELTA SYNC: Periodically catch only the most recent conversations (Limit 10)
+  useEffect(() => {
+    if (pages.length === 0) return;
+    
+    const deltaSync = async () => {
+      // Use existingMap to check what we already have
+      const existingMap = new Map(conversations.map(c => [c.id, c]));
+      const newConvsFound: Conversation[] = [];
+
+      for (const page of pages) {
+        if (!page.accessToken) continue;
+        try {
+          // Delta sync: Only fetch last 10 conversations to detect new activity
+          const metaConvs = await fetchPageConversations(page.id, page.accessToken, 10);
+          for (const conv of metaConvs) {
+            const local = existingMap.get(conv.id);
+            // If it's a new conversation or updated, we track it
+            if (!local || local.lastTimestamp !== conv.lastTimestamp) {
+              if (local && local.customerAvatarBlob) {
+                conv.customerAvatarBlob = local.customerAvatarBlob;
+              } else if (conv.customerAvatar) {
+                const blob = await fetchAsBlob(conv.customerAvatar);
+                if (blob) conv.customerAvatarBlob = blob;
+              }
+              await dbService.put('conversations', conv);
+              newConvsFound.push(conv);
+            }
+          }
+        } catch (e) {
+          console.warn("Delta background poll failed for page", page.name);
+        }
+      }
+
+      if (newConvsFound.length > 0) {
+        const all = await dbService.getAll<Conversation>('conversations');
+        setConversations(all);
+      }
+    };
+
+    const interval = setInterval(deltaSync, 15000); // Check for new activity every 15s
+    return () => clearInterval(interval);
+  }, [pages, conversations.length]);
 
   const sortedConversations = useMemo(() => {
     return [...conversations].sort((a, b) => 
@@ -148,11 +194,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
       for (const page of pages) {
         if (!page.accessToken) continue;
-        const metaConvs = await fetchPageConversations(page.id, page.accessToken);
+        // FULL SYNC: Fetch up to 100 conversations
+        const metaConvs = await fetchPageConversations(page.id, page.accessToken, 100);
         
         for (const conv of metaConvs) {
           const local = existingMap.get(conv.id);
-          // Only fetch avatar if not already cached as binary
           if (local && local.customerAvatarBlob) {
             conv.customerAvatarBlob = local.customerAvatarBlob;
           } else if (conv.customerAvatar) {
@@ -164,6 +210,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
       const allConvs = await dbService.getAll<Conversation>('conversations');
       setConversations(allConvs);
+      setIsHistorySynced(true);
+      localStorage.setItem(SYNCED_KEY, 'true');
     } catch (e) {
       console.error("Sync failed", e);
     } finally {
@@ -178,6 +226,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       await dbService.clearStore('messages');
       setConversations([]);
       setMessages([]);
+      setIsHistorySynced(false);
+      localStorage.setItem(SYNCED_KEY, 'false');
     } catch (e) {
       console.error("Clear failed", e);
     } finally {
@@ -228,7 +278,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     });
     await dbService.put('pages', page);
     try {
-      const metaConvs = await fetchPageConversations(page.id, page.accessToken);
+      // Initial connection only gets top 5 conversations to keep it snappy
+      const metaConvs = await fetchPageConversations(page.id, page.accessToken, 5);
       for (const conv of metaConvs) {
         if (conv.customerAvatar) {
           const blob = await fetchAsBlob(conv.customerAvatar);
@@ -265,17 +316,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const bulkAddMessages = async (msgs: Message[], silent: boolean = false) => {
-    // Only update state if there's actually a new message to avoid unnecessary re-renders
     setMessages(prev => {
       const existingIds = new Set(prev.map(m => m.id));
       const newOnes = msgs.filter(m => !existingIds.has(m.id));
       
       if (newOnes.length === 0) return prev;
       
-      // Batch update the DB for new ones
       newOnes.forEach(m => dbService.put('messages', m));
       
-      // Update parent conversation for the latest one
       const last = newOnes[newOnes.length - 1];
       updateConversation(last.conversationId, {
         lastMessage: last.text,
@@ -349,7 +397,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       simulateIncomingWebhook,
       approvedLinks, addApprovedLink, removeApprovedLink,
       approvedMedia, addApprovedMedia, removeApprovedMedia,
-      dashboardStats, dbStatus, clearLocalChats
+      dashboardStats, dbStatus, clearLocalChats,
+      isHistorySynced
     }}>
       {children}
     </AppContext.Provider>
