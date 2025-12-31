@@ -22,6 +22,7 @@ interface AppContextType {
   removePage: (id: string) => Promise<void>;
   conversations: Conversation[];
   updateConversation: (id: string, updates: Partial<Conversation>) => Promise<void>;
+  deleteConversation: (id: string) => Promise<void>;
   messages: Message[];
   addMessage: (msg: Message) => Promise<void>;
   bulkAddMessages: (msgs: Message[], silent?: boolean) => Promise<void>;
@@ -32,6 +33,7 @@ interface AppContextType {
   login: (email: string, password: string) => Promise<boolean>;
   logout: () => Promise<void>;
   syncMetaConversations: () => Promise<void>;
+  syncFullHistory: () => Promise<void>;
   verifyPageConnection: (pageId: string) => Promise<boolean>;
   simulateIncomingWebhook: (pageId: string) => Promise<void>;
   approvedLinks: ApprovedLink[];
@@ -72,6 +74,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [approvedMedia, setApprovedMedia] = useState<ApprovedMedia[]>([]);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isHistorySynced, setIsHistorySynced] = useState(localStorage.getItem(SYNCED_KEY) === 'true');
+  
+  const [portalActivationTime] = useState<number>(Date.now());
 
   useEffect(() => {
     const initDatabase = async () => {
@@ -106,7 +110,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     initDatabase();
   }, []);
 
-  // BACKGROUND DELTA SYNC: No pictures, no participants requested.
   useEffect(() => {
     if (pages.length === 0) return;
     
@@ -117,13 +120,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       for (const page of pages) {
         if (!page.accessToken) continue;
         try {
-          // BACKGROUND POLL: includeAvatars is FALSE. No User/picture calls.
           const metaConvs = await fetchPageConversations(page.id, page.accessToken, 5, false);
           for (const conv of metaConvs) {
             const local = existingMap.get(conv.id);
-            // If it's a new conversation or updated timestamp
+            const convTime = new Date(conv.lastTimestamp).getTime();
+
+            if (!isHistorySynced && convTime < portalActivationTime) {
+              continue; 
+            }
+
             if (!local || local.lastTimestamp !== conv.lastTimestamp) {
-              // Maintain local avatar if we already had it
               if (local) {
                 conv.customerName = local.customerName;
                 conv.customerId = local.customerId;
@@ -147,7 +153,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     const interval = setInterval(deltaSync, 10000); 
     return () => clearInterval(interval);
-  }, [pages, conversations.length]);
+  }, [pages, conversations.length, isHistorySynced, portalActivationTime]);
 
   const sortedConversations = useMemo(() => {
     return [...conversations].sort((a, b) => 
@@ -195,12 +201,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
       for (const page of pages) {
         if (!page.accessToken) continue;
-        // MANUAL SYNC: includeAvatars is TRUE. This is the ONLY time we hit User/picture.
-        const metaConvs = await fetchPageConversations(page.id, page.accessToken, 100, true);
+        // LATEST 5 CHATS ONLY AS REQUESTED
+        const metaConvs = await fetchPageConversations(page.id, page.accessToken, 5, true);
         
         for (const conv of metaConvs) {
           const local = existingMap.get(conv.id);
-          // Only fetch the avatar if we don't already have it stored as a blob
           if (local && local.customerAvatarBlob) {
             conv.customerAvatarBlob = local.customerAvatarBlob;
           } else if (conv.customerAvatar) {
@@ -212,10 +217,36 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
       const allConvs = await dbService.getAll<Conversation>('conversations');
       setConversations(allConvs);
+    } catch (e) {
+      console.error("Sync failed", e);
+    } finally {
+      setDbStatus('connected');
+    }
+  };
+
+  const syncFullHistory = async () => {
+    if (pages.length === 0) return;
+    setDbStatus('syncing');
+    try {
+      for (const page of pages) {
+        if (!page.accessToken) continue;
+        // FULL HISTORY SYNC (100+)
+        const metaConvs = await fetchPageConversations(page.id, page.accessToken, 100, true);
+        for (const conv of metaConvs) {
+          if (conv.customerAvatar) {
+            const blob = await fetchAsBlob(conv.customerAvatar);
+            if (blob) conv.customerAvatarBlob = blob;
+          }
+          await dbService.put('conversations', conv);
+        }
+      }
+      const allConvs = await dbService.getAll<Conversation>('conversations');
+      setConversations(allConvs);
       setIsHistorySynced(true);
       localStorage.setItem(SYNCED_KEY, 'true');
     } catch (e) {
-      console.error("Sync failed", e);
+      console.error("Full history sync failed", e);
+      throw e;
     } finally {
       setDbStatus('connected');
     }
@@ -230,8 +261,28 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setMessages([]);
       setIsHistorySynced(false);
       localStorage.setItem(SYNCED_KEY, 'false');
+      window.location.reload(); 
     } catch (e) {
       console.error("Clear failed", e);
+    } finally {
+      setDbStatus('connected');
+    }
+  };
+
+  const deleteConversation = async (id: string) => {
+    setDbStatus('syncing');
+    try {
+      await dbService.delete('conversations', id);
+      const allMsgs = await dbService.getAll<Message>('messages');
+      for (const msg of allMsgs) {
+        if (msg.conversationId === id) {
+          await dbService.delete('messages', msg.id);
+        }
+      }
+      setConversations(prev => prev.filter(c => c.id !== id));
+      setMessages(prev => prev.filter(m => m.conversationId !== id));
+    } catch (e) {
+      console.error("Delete conversation failed", e);
     } finally {
       setDbStatus('connected');
     }
@@ -280,11 +331,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     });
     await dbService.put('pages', page);
     try {
-      // Initial page connection: No pictures by default. Keep it lightweight.
-      const metaConvs = await fetchPageConversations(page.id, page.accessToken, 5, false);
-      for (const conv of metaConvs) {
-        await dbService.put('conversations', conv);
-      }
       setConversations(await dbService.getAll<Conversation>('conversations'));
     } catch (e) {
       console.error("Initial sync for page failed", e);
@@ -374,7 +420,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     <AppContext.Provider value={{
       currentUser, setCurrentUser,
       pages, addPage, removePage, updatePage,
-      conversations: sortedConversations, updateConversation,
+      conversations: sortedConversations, updateConversation, deleteConversation,
       messages, addMessage, bulkAddMessages,
       agents, addAgent: async (a) => { setAgents(p => [...p, a]); await dbService.put('agents', a); },
       removeAgent,
@@ -391,7 +437,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           }
         }
       },
-      login, logout, syncMetaConversations, verifyPageConnection,
+      login, logout, syncMetaConversations, syncFullHistory, verifyPageConnection,
       simulateIncomingWebhook,
       approvedLinks, addApprovedLink, removeApprovedLink,
       approvedMedia, addApprovedMedia, removeApprovedMedia,
