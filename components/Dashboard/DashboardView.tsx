@@ -10,21 +10,12 @@ import {
   Zap,
   Database,
   RefreshCcw,
-  Activity
+  Activity,
+  Calendar
 } from 'lucide-react';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { useApp } from '../../store/AppContext';
 import { UserRole } from '../../types';
-
-const data = [
-  { name: 'Mon', conversations: 40 },
-  { name: 'Tue', conversations: 30 },
-  { name: 'Wed', conversations: 65 },
-  { name: 'Thu', conversations: 45 },
-  { name: 'Fri', conversations: 90 },
-  { name: 'Sat', conversations: 25 },
-  { name: 'Sun', conversations: 15 },
-];
 
 const DashboardView: React.FC = () => {
   const { currentUser, dashboardStats, dbStatus, messages } = useApp();
@@ -81,7 +72,7 @@ const DashboardView: React.FC = () => {
         <div className="flex items-center gap-3">
            <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 rounded-xl border border-slate-100">
               <Activity size={14} className="text-blue-500" />
-              <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">{messages.length} Records</span>
+              <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">{messages.length} Local Logs</span>
            </div>
         </div>
       </div>
@@ -107,15 +98,17 @@ const DashboardView: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2 bg-white p-8 rounded-3xl border border-slate-100 shadow-sm">
           <div className="flex items-center justify-between mb-8">
-             <h3 className="text-lg font-bold text-slate-800">Traffic Ingress</h3>
-             <select className="bg-slate-50 border-none rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-500 outline-none">
-               <option>Last 24 Hours</option>
-               <option>Real-time</option>
-             </select>
+             <div className="flex items-center gap-2">
+                <Calendar size={18} className="text-slate-400" />
+                <h3 className="text-lg font-bold text-slate-800">Chat Activity Ingress</h3>
+             </div>
+             <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 rounded-lg text-[9px] font-black uppercase tracking-widest text-slate-400 border border-slate-100">
+               Last 7 Days (Real Logs)
+             </div>
           </div>
           <div className="h-80 w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={data}>
+              <AreaChart data={dashboardStats.chartData}>
                 <defs>
                   <linearGradient id="colorConv" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#2563eb" stopOpacity={0.1}/>
@@ -123,13 +116,19 @@ const DashboardView: React.FC = () => {
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} />
-                <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} />
+                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12, fontWeight: 'bold'}} />
+                <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12, fontWeight: 'bold'}} />
                 <Tooltip 
-                  contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                  contentStyle={{ 
+                    borderRadius: '24px', 
+                    border: '1px solid #f1f5f9', 
+                    boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)',
+                    fontSize: '12px',
+                    fontWeight: 'bold'
+                  }}
                   cursor={{ stroke: '#2563eb', strokeWidth: 2 }}
                 />
-                <Area type="monotone" dataKey="conversations" stroke="#2563eb" strokeWidth={3} fillOpacity={1} fill="url(#colorConv)" />
+                <Area type="monotone" dataKey="conversations" stroke="#2563eb" strokeWidth={4} fillOpacity={1} fill="url(#colorConv)" />
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -141,12 +140,12 @@ const DashboardView: React.FC = () => {
              <div className="p-3 bg-white/20 w-fit rounded-2xl mb-6">
                <Database size={24} />
              </div>
-             <h3 className="text-xl font-bold mb-2">NoSQL Engine Ready</h3>
-             <p className="text-blue-100 text-sm mb-8 leading-relaxed">The portal is using IndexedDB, a powerful NoSQL database built into your browser, capable of storing millions of message records without lag.</p>
+             <h3 className="text-xl font-bold mb-2">NoSQL Engine Integrity</h3>
+             <p className="text-blue-100 text-sm mb-8 leading-relaxed">System is strictly manual. No AI agents are active. Human oversight is 100% enforced on all ingress/egress message channels.</p>
              
              <div className="space-y-4 mt-auto">
                 <div className="flex items-center justify-between text-xs font-semibold text-blue-100 uppercase tracking-widest">
-                  <span>Throughput Optimized</span>
+                  <span>Manual Agent Mode</span>
                   <span>100%</span>
                 </div>
                 <div className="w-full bg-blue-900/40 h-2 rounded-full overflow-hidden">
@@ -157,7 +156,7 @@ const DashboardView: React.FC = () => {
                   className="w-full py-4 bg-white text-blue-600 rounded-2xl font-bold hover:bg-blue-50 transition-colors flex items-center justify-center gap-2 mt-4 group"
                 >
                   <RefreshCcw size={18} className="group-hover:rotate-180 transition-transform duration-500" />
-                  Re-initialize Engine
+                  Synchronize Local Data
                 </button>
              </div>
            </div>
