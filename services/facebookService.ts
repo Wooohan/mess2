@@ -108,11 +108,11 @@ export const verifyPageAccessToken = async (pageId: string, accessToken: string)
 };
 
 /**
- * Optimized fetch for conversations including picture expansion
+ * Optimized fetch for conversations including picture expansion.
+ * We prioritize the expanded picture data to minimize hits to /picture endpoint.
  */
 export const fetchPageConversations = async (pageId: string, pageAccessToken: string): Promise<Conversation[]> => {
-  // Requesting participants with the picture expansion for direct avatar access
-  const url = `https://graph.facebook.com/v22.0/${pageId}/conversations?fields=id,snippet,updated_time,participants{id,name,picture},unread_count&access_token=${pageAccessToken}`;
+  const url = `https://graph.facebook.com/v22.0/${pageId}/conversations?fields=id,snippet,updated_time,participants{id,name,picture.type(large)},unread_count&access_token=${pageAccessToken}`;
   const response = await fetch(url);
   const data = await response.json();
   
@@ -121,7 +121,7 @@ export const fetchPageConversations = async (pageId: string, pageAccessToken: st
   return (data.data || []).map((conv: any) => {
     const customer = conv.participants?.data?.find((p: any) => p.id !== pageId) || { name: 'Messenger User', id: 'unknown' };
     
-    // Use the expanded picture data if available, fallback to the direct picture redirect URL
+    // Prefer the explicit URL from the expanded picture field
     const avatarUrl = customer.picture?.data?.url || 
                      `https://graph.facebook.com/v22.0/${customer.id}/picture?type=large&access_token=${pageAccessToken}`;
     
@@ -142,7 +142,6 @@ export const fetchPageConversations = async (pageId: string, pageAccessToken: st
 
 /**
  * Fetches thread messages.
- * Enhanced identification of incoming vs outgoing to stop mirroring.
  */
 export const fetchThreadMessages = async (conversationId: string, pageId: string, pageAccessToken: string): Promise<Message[]> => {
   const url = `https://graph.facebook.com/v22.0/${conversationId}/messages?fields=id,message,created_time,from&access_token=${pageAccessToken}`;
@@ -152,7 +151,6 @@ export const fetchThreadMessages = async (conversationId: string, pageId: string
   if (data.error) throw new Error(data.error.message);
 
   return (data.data || []).map((msg: any) => {
-    // Explicitly check sender ID against the managed Page ID to set direction
     const isFromPage = msg.from.id === pageId;
     
     return {
