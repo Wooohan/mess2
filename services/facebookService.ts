@@ -2,9 +2,9 @@
 import { FacebookPage } from '../types';
 
 /**
- * STEP 1: Replace this string with your App ID from https://developers.facebook.com
+ * Meta App ID provided by user: 1938499797069544
  */
-const FB_APP_ID = '1938499797069544'; 
+const FB_APP_ID: string = '1938499797069544'; 
 
 let sdkPromise: Promise<void> | null = null;
 
@@ -13,6 +13,7 @@ export const isAppIdConfigured = () => {
 };
 
 export const isSecureOrigin = () => {
+  // Meta strictly requires HTTPS for JSSDK Login unless on localhost
   return window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 };
 
@@ -20,22 +21,31 @@ export const initFacebookSDK = (): Promise<void> => {
   if (sdkPromise) return sdkPromise;
 
   sdkPromise = new Promise<void>((resolve) => {
+    // Check if SDK already loaded and initialized
     if ((window as any).FB && (window as any).FB._initialized) {
       resolve();
       return;
     }
 
     (window as any).fbAsyncInit = function() {
-      (window as any).FB.init({
-        appId            : isAppIdConfigured() ? FB_APP_ID : '123456789', // Use dummy only to prevent crash during init
-        cookie           : true,
-        xfbml            : true,
-        version          : 'v22.0'
-      });
-      (window as any).FB._initialized = true;
-      resolve();
+      try {
+        (window as any).FB.init({
+          appId            : isAppIdConfigured() ? FB_APP_ID : '123456789',
+          cookie           : true,   // Enable cookies to allow the server to access the session
+          xfbml            : true,   // Parse social plugins on this webpage
+          version          : 'v22.0', // Use the latest Graph API version
+          status           : true    // Check login status on every page load
+        });
+        (window as any).FB._initialized = true;
+        console.log("Facebook SDK Initialized Successfully");
+        resolve();
+      } catch (e) {
+        console.error("FB.init failed:", e);
+        resolve(); // Resolve anyway to prevent hanging, but log error
+      }
     };
 
+    // Inject SDK Script
     if (!document.getElementById('facebook-jssdk')) {
       const fjs = document.getElementsByTagName('script')[0];
       const js = document.createElement('script') as HTMLScriptElement;
@@ -55,21 +65,23 @@ export const loginWithFacebook = async () => {
 
   return new Promise<any>((resolve, reject) => {
     if (!isAppIdConfigured()) {
-      return reject('Invalid App ID. Please update services/facebookService.ts with your Meta App ID.');
+      return reject('App ID is not configured. Please check services/facebookService.ts');
     }
     
     if (!isSecureOrigin()) {
-      return reject('Facebook Login requires HTTPS. Meta forbids OAuth on insecure origins.');
+      return reject('Meta requires HTTPS. Please ensure you are running on a secure domain.');
     }
 
     (window as any).FB.login((response: any) => {
       if (response.authResponse) {
         resolve(response.authResponse);
       } else {
-        reject('Authorization failed. Did you grant permissions in the popup?');
+        // Handle cases where the JSSDK login is disabled in the dashboard
+        const errorMsg = response?.error_message || 'Authorization failed. Check if "Login with JavaScript SDK" is enabled in your Meta App Dashboard.';
+        reject(errorMsg);
       }
     }, { 
-      // Comprehensive scopes for Page Messaging
+      // Permissions required for Page Messaging
       scope: 'pages_messaging,pages_show_list,pages_manage_metadata,public_profile,pages_read_engagement' 
     });
   });
@@ -88,7 +100,7 @@ export const fetchUserPages = async (): Promise<FacebookPage[]> => {
           name: p.name,
           category: p.category || 'Business',
           isConnected: true,
-          accessToken: p.access_token, // Real Page Token for sending messages
+          accessToken: p.access_token,
           assignedAgentIds: []
         }));
         resolve(pages);
