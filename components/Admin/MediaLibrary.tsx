@@ -1,11 +1,11 @@
 
 import React, { useState, useRef } from 'react';
-import { Plus, Trash2, Link as LinkIcon, Image as ImageIcon, Upload, X, Check } from 'lucide-react';
+import { Plus, Trash2, Link as LinkIcon, Image as ImageIcon, Upload, X } from 'lucide-react';
 import { useApp } from '../../store/AppContext';
 import { ApprovedLink, ApprovedMedia } from '../../types';
 
 const MediaLibrary: React.FC = () => {
-  const { approvedLinks, setApprovedLinks, approvedMedia, setApprovedMedia } = useApp();
+  const { approvedLinks, addApprovedLink, removeApprovedLink, approvedMedia, addApprovedMedia, removeApprovedMedia } = useApp();
   const [activeTab, setActiveTab] = useState<'links' | 'media'>('links');
   const [showAddModal, setShowAddModal] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -18,7 +18,7 @@ const MediaLibrary: React.FC = () => {
     const file = e.target.files?.[0];
     if (file && file.type === 'image/png') {
       const reader = new FileReader();
-      reader.onloadend = () => {
+      reader.onloadend = async () => {
         const newMedia: ApprovedMedia = {
           id: `media-${Date.now()}`,
           title: mediaTitle || file.name,
@@ -26,7 +26,7 @@ const MediaLibrary: React.FC = () => {
           type: 'image',
           isLocal: true
         };
-        setApprovedMedia([...approvedMedia, newMedia]);
+        await addApprovedMedia(newMedia);
         setShowAddModal(false);
         setMediaTitle('');
       };
@@ -36,9 +36,15 @@ const MediaLibrary: React.FC = () => {
     }
   };
 
-  const handleAddLink = (e: React.FormEvent) => {
+  const handleAddLink = async (e: React.FormEvent) => {
     e.preventDefault();
-    setApprovedLinks([...approvedLinks, { id: `link-${Date.now()}`, title: linkTitle, url: linkUrl, category: 'General' }]);
+    const newLink: ApprovedLink = { 
+      id: `link-${Date.now()}`, 
+      title: linkTitle, 
+      url: linkUrl, 
+      category: 'General' 
+    };
+    await addApprovedLink(newLink);
     setShowAddModal(false);
     setLinkTitle(''); setLinkUrl('');
   };
@@ -79,7 +85,7 @@ const MediaLibrary: React.FC = () => {
             <div key={link.id} className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm group">
               <div className="flex justify-between mb-4">
                 <div className="p-3 bg-blue-50 text-blue-600 rounded-2xl"><LinkIcon size={20} /></div>
-                <button onClick={() => setApprovedLinks(l => l.filter(x => x.id !== link.id))} className="text-slate-300 hover:text-red-500"><Trash2 size={18} /></button>
+                <button onClick={() => removeApprovedLink(link.id)} className="text-slate-300 hover:text-red-500"><Trash2 size={18} /></button>
               </div>
               <h4 className="font-bold text-slate-800">{link.title}</h4>
               <p className="text-xs text-blue-500 mt-1 truncate">{link.url}</p>
@@ -93,7 +99,7 @@ const MediaLibrary: React.FC = () => {
                 <div className="aspect-square bg-slate-50 relative">
                    <img src={media.url} className="w-full h-full object-cover" />
                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center gap-2 transition-all">
-                      <button onClick={() => setApprovedMedia(m => m.filter(x => x.id !== media.id))} className="p-3 bg-red-500 text-white rounded-xl hover:scale-110 transition-transform"><Trash2 size={20} /></button>
+                      <button onClick={() => removeApprovedMedia(media.id)} className="p-3 bg-red-500 text-white rounded-xl hover:scale-110 transition-transform"><Trash2 size={20} /></button>
                    </div>
                 </div>
                 <div className="p-3">
