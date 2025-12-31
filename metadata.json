@@ -1,8 +1,0 @@
-{
-  "name": "MessengerFlow Multi-Agent Portal",
-  "description": "A high-performance SaaS portal for managing Facebook Messenger conversations across multiple agents with AI-powered suggestions and real-time inbox management.",
-  "requestFramePermissions": [
-    "camera",
-    "microphone"
-  ]
-}
