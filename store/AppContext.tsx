@@ -1,3 +1,4 @@
+
 import React, { createContext, useContext, useState, ReactNode, useEffect, useMemo } from 'react';
 import { User, UserRole, FacebookPage, Conversation, Message, ConversationStatus, ApprovedLink, ApprovedMedia } from '../types';
 import { MOCK_USERS, MOCK_PAGES, MOCK_CONVERSATIONS } from '../constants';
@@ -109,7 +110,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     initDatabase();
   }, []);
 
-  // Background Delta Sync
   useEffect(() => {
     if (pages.length === 0) return;
     
@@ -120,7 +120,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       for (const page of pages) {
         if (!page.accessToken) continue;
         try {
-          // Fetch 5 recent conversations in 1 request per page
           const metaConvs = await fetchPageConversations(page.id, page.accessToken, 5, true);
           for (const conv of metaConvs) {
             const local = existingMap.get(conv.id);
@@ -199,16 +198,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
       for (const page of pages) {
         if (!page.accessToken) continue;
-        // Optimization: 1 request to Meta per page to get the 5 most recent conversations
         const metaConvs = await fetchPageConversations(page.id, page.accessToken, 5, true);
         
         for (const conv of metaConvs) {
           const local = existingMap.get(conv.id);
-          // If we already have the blob, reuse it to save bandwidth
           if (local && local.customerAvatarBlob) {
             conv.customerAvatarBlob = local.customerAvatarBlob;
           } else if (conv.customerAvatar) {
-            // Fetch avatar binary only if we don't have it
             const blob = await fetchAsBlob(conv.customerAvatar);
             if (blob) conv.customerAvatarBlob = blob;
           }
@@ -218,7 +214,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const allConvs = await dbService.getAll<Conversation>('conversations');
       setConversations(allConvs);
     } catch (e) {
-      console.error("Sync failed", e);
+      console.error("Inbox Sync failed", e);
     } finally {
       setDbStatus('connected');
     }
@@ -227,32 +223,43 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const syncFullHistory = async () => {
     if (pages.length === 0) return;
     setDbStatus('syncing');
+    let hasOneSuccess = false;
+    let lastErr = null;
+
     try {
       const existingConvs = await dbService.getAll<Conversation>('conversations');
       const existingMap = new Map(existingConvs.map(c => [c.id, c]));
 
       for (const page of pages) {
         if (!page.accessToken) continue;
-        // Robust fetch for full history
-        const metaConvs = await fetchPageConversations(page.id, page.accessToken, 100, true);
-        for (const conv of metaConvs) {
-          const local = existingMap.get(conv.id);
-          if (local && local.customerAvatarBlob) {
-            conv.customerAvatarBlob = local.customerAvatarBlob;
-          } else if (conv.customerAvatar) {
-            const blob = await fetchAsBlob(conv.customerAvatar);
-            if (blob) conv.customerAvatarBlob = blob;
+        try {
+          const metaConvs = await fetchPageConversations(page.id, page.accessToken, 100, true);
+          for (const conv of metaConvs) {
+            const local = existingMap.get(conv.id);
+            if (local && local.customerAvatarBlob) {
+              conv.customerAvatarBlob = local.customerAvatarBlob;
+            } else if (conv.customerAvatar) {
+              const blob = await fetchAsBlob(conv.customerAvatar);
+              if (blob) conv.customerAvatarBlob = blob;
+            }
+            await dbService.put('conversations', conv);
           }
-          await dbService.put('conversations', conv);
+          hasOneSuccess = true;
+        } catch (pageErr) {
+          console.warn(`Sync failed for page ${page.name}`, pageErr);
+          lastErr = pageErr;
         }
       }
+      
+      if (!hasOneSuccess && lastErr) throw lastErr;
+
       const allConvs = await dbService.getAll<Conversation>('conversations');
       setConversations(allConvs);
       setIsHistorySynced(true);
       localStorage.setItem(SYNCED_KEY, 'true');
     } catch (e) {
       console.error("Full history sync failed", e);
-      throw e; // Rethrow to let UI catch it
+      throw e;
     } finally {
       setDbStatus('connected');
     }
@@ -294,8 +301,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
-  // Fixed verifyPageConnection implementation to match the AppContextType interface
-  // by retrieving the accessToken from the internal pages state instead of as a parameter.
   const verifyPageConnection = async (pageId: string): Promise<boolean> => {
     const page = pages.find(p => p.id === pageId);
     if (!page?.accessToken) return false;
