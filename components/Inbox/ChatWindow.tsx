@@ -9,7 +9,6 @@ interface ChatWindowProps {
   conversation: Conversation;
 }
 
-// Optimized component to render persistent avatars from Blobs
 const CachedAvatar: React.FC<{ conversation: Conversation, className?: string }> = ({ conversation, className }) => {
   const [url, setUrl] = useState<string>(conversation.customerAvatar);
 
@@ -35,7 +34,7 @@ const CachedAvatar: React.FC<{ conversation: Conversation, className?: string }>
 };
 
 const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
-  const { currentUser, messages, addMessage, pages, approvedLinks, approvedMedia, updateConversation } = useApp();
+  const { currentUser, messages, bulkAddMessages, pages, approvedLinks, approvedMedia, updateConversation } = useApp();
   const [inputText, setInputText] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
@@ -45,7 +44,6 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
   const [showSecurityPopup, setShowSecurityPopup] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Strictly sorted chat messages for the current conversation
   const chatMessages = useMemo(() => {
     return messages
       .filter(m => m.conversationId === conversation.id)
@@ -55,40 +53,36 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
   useEffect(() => {
     let isMounted = true;
     
-    // Background refresh logic - silent by default
     const syncThread = async (isInitial = false) => {
       const page = pages.find(p => p.id === conversation.pageId);
       if (!page?.accessToken || !isMounted) return;
 
-      if (isInitial) setIsLoadingMessages(true);
+      // Only show the big spinner if we have absolutely 0 messages locally for this thread
+      if (isInitial && chatMessages.length === 0) setIsLoadingMessages(true);
+      
       try {
         const metaMsgs = await fetchThreadMessages(conversation.id, page.id, page.accessToken);
         if (isMounted) {
-          for (const msg of metaMsgs) {
-            await addMessage(msg); 
-          }
+          // Silent delta update (AppContext handles duplicate checking)
+          await bulkAddMessages(metaMsgs, true);
         }
       } catch (err) {
-        console.error("Thread sync failed", err);
+        console.error("Delta poll failed", err);
       } finally {
         if (isInitial && isMounted) setIsLoadingMessages(false);
       }
     };
 
-    // Trigger initial load with spinner
     syncThread(true);
-    
-    // Poll silently every 10 seconds for real-time background updates
-    const poll = setInterval(() => syncThread(false), 10000);
+    const poll = setInterval(() => syncThread(false), 10000); // 10s Delta Polling
     
     return () => {
       isMounted = false;
       clearInterval(poll);
     };
-  }, [conversation.id]); // Only re-run if active conversation changes
+  }, [conversation.id]); 
 
   useEffect(() => {
-    // Scroll to bottom on new messages
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
@@ -120,7 +114,6 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
     setLastError(null);
     const currentPage = pages.find(p => p.id === conversation.pageId);
     
-    // Optimistic UI update
     const newMessage: Message = {
       id: `msg-${Date.now()}`,
       conversationId: conversation.id,
@@ -136,7 +129,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
       if (currentPage && currentPage.accessToken) {
         await sendPageMessage(conversation.customerId, textToSubmit, currentPage.accessToken);
       }
-      await addMessage(newMessage);
+      await bulkAddMessages([newMessage]);
       if (!forcedText) setInputText('');
       setShowLibrary(false);
     } catch (err: any) {
@@ -161,8 +154,9 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
   };
 
   return (
-    <div className="flex flex-col h-full bg-white relative">
-      <div className="px-4 md:px-8 py-4 md:py-5 border-b border-slate-100 flex items-center justify-between bg-white/80 backdrop-blur-xl sticky top-0 z-30">
+    <div className="flex flex-col h-full bg-white relative overflow-hidden">
+      {/* Header - Fixed Height */}
+      <div className="px-4 md:px-8 py-4 md:py-5 border-b border-slate-100 flex items-center justify-between bg-white/80 backdrop-blur-xl shrink-0 z-30">
         <div className="flex items-center gap-3 md:gap-4 ml-10 md:ml-0">
           <div className="relative flex-shrink-0">
             <CachedAvatar conversation={conversation} className="w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl object-cover shadow-sm bg-slate-100" />
@@ -171,7 +165,6 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <h3 className="font-bold text-slate-800 text-sm md:text-base truncate">{conversation.customerName}</h3>
-              {isLoadingMessages && <Loader2 size={12} className="animate-spin text-blue-400" />}
             </div>
             
             <div className="relative inline-block">
@@ -213,7 +206,8 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
         </div>
       </div>
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 md:p-8 space-y-4 md:space-y-6 bg-slate-50/20">
+      {/* Messages - Fills all available vertical space */}
+      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto p-4 md:p-8 space-y-4 md:space-y-6 bg-slate-50/20 custom-scrollbar">
         {chatMessages.length === 0 && !isLoadingMessages && (
           <div className="flex flex-col items-center justify-center py-20 text-slate-300 text-center">
             <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center shadow-sm border border-slate-100 mb-4">
@@ -225,7 +219,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
         {isLoadingMessages && chatMessages.length === 0 && (
           <div className="flex flex-col items-center justify-center py-20 text-blue-400/50">
             <Loader2 size={32} className="animate-spin mb-4" />
-            <p className="text-[10px] font-black uppercase tracking-widest">Pulling History from Meta...</p>
+            <p className="text-[10px] font-black uppercase tracking-widest">Delta Sync in Progress...</p>
           </div>
         )}
         {chatMessages.map((msg) => (
@@ -244,7 +238,8 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
         ))}
       </div>
 
-      <div className="p-4 md:p-8 border-t border-slate-100 bg-white relative">
+      {/* Input Area - Fixed at bottom */}
+      <div className="p-4 md:p-8 border-t border-slate-100 bg-white shrink-0">
         {lastError && (
           <div className="mb-4 p-4 bg-red-600 text-white text-xs font-black rounded-2xl flex items-center gap-3 animate-shake shadow-xl shadow-red-200 border border-red-700">
             <AlertCircle size={20} className="flex-shrink-0" /> {lastError}
@@ -314,7 +309,6 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
         </div>
       </div>
 
-      {/* Security Block Popup */}
       {showSecurityPopup && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-xl z-[200] flex items-center justify-center p-6 animate-in fade-in">
            <div className="bg-white rounded-[48px] shadow-2xl w-full max-w-sm p-10 text-center animate-in zoom-in-95 border-b-8 border-red-500">
