@@ -5,7 +5,6 @@ import { useApp } from '../../store/AppContext';
 import { Conversation, ConversationStatus, UserRole } from '../../types';
 import ChatWindow from './ChatWindow';
 
-// Optimized component to render persistent avatars from Blobs
 const CachedAvatar: React.FC<{ conversation: Conversation, className?: string }> = ({ conversation, className }) => {
   const [url, setUrl] = useState<string>(conversation.customerAvatar);
 
@@ -48,11 +47,8 @@ const InboxView: React.FC = () => {
   const visibleConversations = conversations.filter(conv => {
     const page = pages.find(p => p.id === conv.pageId);
     const isAdmin = currentUser?.role === UserRole.SUPER_ADMIN;
-    
-    // Check if the agent is assigned to this PAGE
     const isAssignedToPage = (page?.assignedAgentIds || []).includes(currentUser?.id || '');
     
-    // Admins see everything, agents see their assigned pages
     if (!isAdmin && !isAssignedToPage) return false;
     
     const matchesFilter = filter === 'ALL' || conv.status === filter;
@@ -70,9 +66,9 @@ const InboxView: React.FC = () => {
   };
 
   return (
-    <div className="flex h-[calc(100vh-140px)] md:h-[calc(100vh-180px)] bg-white overflow-hidden rounded-3xl md:rounded-[40px] border border-slate-100 shadow-2xl shadow-slate-200/40">
+    <div className="flex h-[calc(100vh-60px)] md:h-[calc(100vh-80px)] bg-white overflow-hidden rounded-3xl md:rounded-[40px] border border-slate-100 shadow-2xl shadow-slate-200/40">
       <div className={`w-full md:w-80 border-r border-slate-100 flex flex-col bg-slate-50/30 ${activeConvId ? 'hidden md:flex' : 'flex'}`}>
-        <div className="p-4 md:p-6 space-y-4">
+        <div className="p-4 md:p-6 space-y-4 shrink-0">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-bold text-slate-800 tracking-tight">Messages</h2>
             <button 
