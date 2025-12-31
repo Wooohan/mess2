@@ -2,7 +2,7 @@
 import { FacebookPage, Conversation, Message, ConversationStatus } from '../types';
 
 /**
- * Meta App ID: 1938499797069544
+ * Meta App ID: 1148755260666274
  */
 const FB_APP_ID: string = '1148755260666274'; 
 
@@ -64,7 +64,7 @@ export const loginWithFacebook = async () => {
       if (response.authResponse) {
         resolve(response.authResponse);
       } else {
-        reject(response?.error_message || 'Login Failed');
+        reject(response?.error_message || 'Login Failed. Ensure "Login with JavaScript SDK" is ENABLED in Meta Dashboard.');
       }
     }, { 
       scope: 'pages_messaging,pages_show_list,pages_manage_metadata,public_profile,pages_read_engagement' 
@@ -93,9 +93,6 @@ export const fetchUserPages = async (): Promise<FacebookPage[]> => {
   });
 };
 
-/**
- * Fetches real conversations for a specific page
- */
 export const fetchPageConversations = async (pageId: string, pageAccessToken: string): Promise<Conversation[]> => {
   const url = `https://graph.facebook.com/v22.0/${pageId}/conversations?fields=id,snippet,updated_time,participants,unread_count&access_token=${pageAccessToken}`;
   const response = await fetch(url);
@@ -120,9 +117,6 @@ export const fetchPageConversations = async (pageId: string, pageAccessToken: st
   });
 };
 
-/**
- * Fetches messages for a specific conversation thread
- */
 export const fetchThreadMessages = async (conversationId: string, pageAccessToken: string): Promise<Message[]> => {
   const url = `https://graph.facebook.com/v22.0/${conversationId}/messages?fields=id,message,created_time,from&access_token=${pageAccessToken}`;
   const response = await fetch(url);
@@ -137,9 +131,9 @@ export const fetchThreadMessages = async (conversationId: string, pageAccessToke
     senderName: msg.from.name,
     text: msg.message,
     timestamp: msg.created_time,
-    isIncoming: msg.from.id !== conversationId.split('_')[0], // Simplified check
+    isIncoming: msg.from.id !== conversationId.split('_')[0],
     isRead: true
-  })).reverse(); // Oldest first for chat UI
+  })).reverse();
 };
 
 export const sendPageMessage = async (recipientId: string, text: string, pageAccessToken: string) => {
