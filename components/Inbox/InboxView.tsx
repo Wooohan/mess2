@@ -71,8 +71,9 @@ const InboxView: React.FC = () => {
   };
 
   return (
-    <div className="flex h-[calc(100vh-40px)] bg-white overflow-hidden rounded-3xl md:rounded-[40px] border border-slate-100 shadow-2xl shadow-slate-200/40">
-      <div className={`w-full md:w-80 border-r border-slate-100 flex flex-col bg-slate-50/30 ${activeConvId ? 'hidden md:flex' : 'flex'}`}>
+    <div className="flex h-[calc(100vh-40px)] bg-white overflow-hidden rounded-3xl md:rounded-[40px] border border-slate-100 shadow-2xl shadow-slate-200/40 relative">
+      {/* Sidebar List */}
+      <div className={`w-full md:w-80 border-r border-slate-100 flex flex-col bg-slate-50/30 transition-all ${activeConvId ? 'hidden md:flex' : 'flex'}`}>
         <div className="p-4 md:p-6 space-y-4 shrink-0">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-bold text-slate-800 tracking-tight">Messages</h2>
@@ -177,7 +178,8 @@ const InboxView: React.FC = () => {
         </div>
       </div>
 
-      <div className={`flex-1 bg-white relative ${!activeConvId ? 'hidden md:flex' : 'flex'}`}>
+      {/* Main Chat View */}
+      <div className={`flex-1 bg-white relative ${!activeConvId ? 'hidden md:flex' : 'flex h-full'}`}>
         {activeConv ? (
           <div className="flex flex-col w-full h-full">
             <button 
