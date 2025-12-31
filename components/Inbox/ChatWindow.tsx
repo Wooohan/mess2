@@ -9,6 +9,31 @@ interface ChatWindowProps {
   conversation: Conversation;
 }
 
+// Optimized component to render persistent avatars from Blobs
+const CachedAvatar: React.FC<{ conversation: Conversation, className?: string }> = ({ conversation, className }) => {
+  const [url, setUrl] = useState<string>(conversation.customerAvatar);
+
+  useEffect(() => {
+    if (conversation.customerAvatarBlob) {
+      const objectUrl = URL.createObjectURL(conversation.customerAvatarBlob);
+      setUrl(objectUrl);
+      return () => URL.revokeObjectURL(objectUrl);
+    }
+    setUrl(conversation.customerAvatar);
+  }, [conversation.customerAvatarBlob, conversation.customerAvatar]);
+
+  return (
+    <img 
+      src={url} 
+      className={className} 
+      alt="" 
+      onError={(e) => {
+        (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(conversation.customerName)}&background=random`;
+      }}
+    />
+  );
+};
+
 const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
   const { currentUser, messages, addMessage, pages, approvedLinks, approvedMedia, updateConversation } = useApp();
   const [inputText, setInputText] = useState('');
@@ -140,13 +165,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
       <div className="px-4 md:px-8 py-4 md:py-5 border-b border-slate-100 flex items-center justify-between bg-white/80 backdrop-blur-xl sticky top-0 z-30">
         <div className="flex items-center gap-3 md:gap-4 ml-10 md:ml-0">
           <div className="relative flex-shrink-0">
-            <img 
-              src={conversation.customerAvatar} 
-              className="w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl object-cover shadow-sm bg-slate-100" 
-              onError={(e) => {
-                (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(conversation.customerName)}&background=random&size=128`;
-              }}
-            />
+            <CachedAvatar conversation={conversation} className="w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl object-cover shadow-sm bg-slate-100" />
             <div className="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-green-500 border-2 border-white rounded-full"></div>
           </div>
           <div className="min-w-0">
