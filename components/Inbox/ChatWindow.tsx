@@ -28,27 +28,39 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
   }, [messages, conversation.id]);
 
   useEffect(() => {
-    const syncThread = async () => {
+    let isMounted = true;
+    
+    // Background refresh logic - silent by default
+    const syncThread = async (isInitial = false) => {
       const page = pages.find(p => p.id === conversation.pageId);
-      if (!page?.accessToken) return;
+      if (!page?.accessToken || !isMounted) return;
 
+      if (isInitial) setIsLoadingMessages(true);
       try {
         const metaMsgs = await fetchThreadMessages(conversation.id, page.id, page.accessToken);
-        for (const msg of metaMsgs) {
-          await addMessage(msg); // store/AppContext handles deduplication and replacement
+        if (isMounted) {
+          for (const msg of metaMsgs) {
+            await addMessage(msg); 
+          }
         }
       } catch (err) {
         console.error("Thread sync failed", err);
+      } finally {
+        if (isInitial && isMounted) setIsLoadingMessages(false);
       }
     };
 
-    setIsLoadingMessages(true);
-    syncThread().finally(() => setIsLoadingMessages(false));
+    // Trigger initial load with spinner
+    syncThread(true);
     
-    // Continuous polling for real-time manual updates
-    const poll = setInterval(syncThread, 8000);
-    return () => clearInterval(poll);
-  }, [conversation.id, pages]);
+    // Poll silently every 10 seconds for real-time background updates
+    const poll = setInterval(() => syncThread(false), 10000);
+    
+    return () => {
+      isMounted = false;
+      clearInterval(poll);
+    };
+  }, [conversation.id]); // Only re-run if active conversation changes
 
   useEffect(() => {
     // Scroll to bottom on new messages
@@ -83,7 +95,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
     setLastError(null);
     const currentPage = pages.find(p => p.id === conversation.pageId);
     
-    // Optimistic UI update - Local ID is replaced when syncThread returns the official Meta message
+    // Optimistic UI update
     const newMessage: Message = {
       id: `msg-${Date.now()}`,
       conversationId: conversation.id,
