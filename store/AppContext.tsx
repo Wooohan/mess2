@@ -105,7 +105,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const openChats = relevantConvs.filter(c => c.status === ConversationStatus.OPEN).length;
     const resolvedToday = relevantConvs.filter(c => c.status === ConversationStatus.RESOLVED).length;
 
-    // Real Chart Data Calculation
+    // Real Chart Data Calculation - grouping actual conversations by day
     const last7Days = Array.from({ length: 7 }, (_, i) => {
       const d = new Date();
       d.setDate(d.getDate() - (6 - i));
@@ -128,7 +128,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, [sortedConversations, currentUser, pages]);
 
   const removeAgent = async (id: string) => {
-    if (id === currentUser?.id) return; // Prevent self-delete
+    if (id === currentUser?.id) return; 
     await dbService.delete('agents', id);
     setAgents(prev => prev.filter(a => a.id !== id));
   };
@@ -144,7 +144,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           await dbService.put('conversations', conv);
         }
       }
-      setConversations(await dbService.getAll<Conversation>('conversations'));
+      const allConvs = await dbService.getAll<Conversation>('conversations');
+      setConversations(allConvs);
     } catch (e) {
       console.error("Sync failed", e);
     } finally {
@@ -224,7 +225,28 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const addMessage = async (msg: Message) => {
     setDbStatus('syncing');
-    setMessages(prev => [...prev, msg]);
+    setMessages(prev => {
+      // 1. Prevent exact duplicate by ID
+      if (prev.some(m => m.id === msg.id)) return prev;
+
+      // 2. Identify and replace optimistic local messages if this is a real Meta message
+      const isOfficial = !msg.id.startsWith('msg-');
+      if (isOfficial) {
+        // Remove any local temporary message with the same content sent by the agent
+        return [
+          ...prev.filter(m => !(
+            m.id.startsWith('msg-') && 
+            m.text === msg.text && 
+            m.senderId === msg.senderId &&
+            m.conversationId === msg.conversationId
+          )),
+          msg
+        ];
+      }
+
+      return [...prev, msg];
+    });
+
     await dbService.put('messages', msg);
     await updateConversation(msg.conversationId, {
       lastMessage: msg.text,
@@ -279,7 +301,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         const updated = agents.map(a => a.id === id ? { ...a, ...u } : a);
         setAgents(updated);
         const agent = updated.find(a => a.id === id);
-        if (agent) await dbService.put('agents', agent);
+        if (agent) {
+          await dbService.put('agents', agent);
+          // Update currentUser if it's the one modified
+          if (currentUser?.id === id) {
+            const updatedUser = { ...currentUser, ...u };
+            setCurrentUser(updatedUser);
+            localStorage.setItem(USER_SESSION_KEY, JSON.stringify(updatedUser));
+          }
+        }
       },
       login, logout, syncMetaConversations, verifyPageConnection,
       simulateIncomingWebhook,
