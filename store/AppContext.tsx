@@ -1,4 +1,3 @@
-
 import React, { createContext, useContext, useState, ReactNode, useEffect, useMemo } from 'react';
 import { User, UserRole, FacebookPage, Conversation, Message, ConversationStatus, ApprovedLink, ApprovedMedia } from '../types';
 import { MOCK_USERS, MOCK_PAGES, MOCK_CONVERSATIONS } from '../constants';
@@ -110,6 +109,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     initDatabase();
   }, []);
 
+  // Background Delta Sync
   useEffect(() => {
     if (pages.length === 0) return;
     
@@ -120,7 +120,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       for (const page of pages) {
         if (!page.accessToken) continue;
         try {
-          const metaConvs = await fetchPageConversations(page.id, page.accessToken, 5, false);
+          // Fetch 5 recent conversations in 1 request per page
+          const metaConvs = await fetchPageConversations(page.id, page.accessToken, 5, true);
           for (const conv of metaConvs) {
             const local = existingMap.get(conv.id);
             const convTime = new Date(conv.lastTimestamp).getTime();
@@ -130,10 +131,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             }
 
             if (!local || local.lastTimestamp !== conv.lastTimestamp) {
-              if (local) {
-                conv.customerName = local.customerName;
-                conv.customerId = local.customerId;
-                conv.customerAvatar = local.customerAvatar;
+              if (local && local.customerAvatarBlob) {
                 conv.customerAvatarBlob = local.customerAvatarBlob;
               }
               await dbService.put('conversations', conv);
@@ -201,14 +199,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
       for (const page of pages) {
         if (!page.accessToken) continue;
-        // LATEST 5 CHATS ONLY AS REQUESTED
+        // Optimization: 1 request to Meta per page to get the 5 most recent conversations
         const metaConvs = await fetchPageConversations(page.id, page.accessToken, 5, true);
         
         for (const conv of metaConvs) {
           const local = existingMap.get(conv.id);
+          // If we already have the blob, reuse it to save bandwidth
           if (local && local.customerAvatarBlob) {
             conv.customerAvatarBlob = local.customerAvatarBlob;
           } else if (conv.customerAvatar) {
+            // Fetch avatar binary only if we don't have it
             const blob = await fetchAsBlob(conv.customerAvatar);
             if (blob) conv.customerAvatarBlob = blob;
           }
@@ -228,12 +228,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (pages.length === 0) return;
     setDbStatus('syncing');
     try {
+      const existingConvs = await dbService.getAll<Conversation>('conversations');
+      const existingMap = new Map(existingConvs.map(c => [c.id, c]));
+
       for (const page of pages) {
         if (!page.accessToken) continue;
-        // FULL HISTORY SYNC (100+)
+        // Robust fetch for full history
         const metaConvs = await fetchPageConversations(page.id, page.accessToken, 100, true);
         for (const conv of metaConvs) {
-          if (conv.customerAvatar) {
+          const local = existingMap.get(conv.id);
+          if (local && local.customerAvatarBlob) {
+            conv.customerAvatarBlob = local.customerAvatarBlob;
+          } else if (conv.customerAvatar) {
             const blob = await fetchAsBlob(conv.customerAvatar);
             if (blob) conv.customerAvatarBlob = blob;
           }
@@ -246,7 +252,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       localStorage.setItem(SYNCED_KEY, 'true');
     } catch (e) {
       console.error("Full history sync failed", e);
-      throw e;
+      throw e; // Rethrow to let UI catch it
     } finally {
       setDbStatus('connected');
     }
@@ -288,10 +294,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
+  // Fixed verifyPageConnection implementation to match the AppContextType interface
+  // by retrieving the accessToken from the internal pages state instead of as a parameter.
   const verifyPageConnection = async (pageId: string): Promise<boolean> => {
     const page = pages.find(p => p.id === pageId);
-    if (!page || !page.accessToken) return false;
-    return await verifyPageAccessToken(page.id, page.accessToken);
+    if (!page?.accessToken) return false;
+    return await verifyPageAccessToken(pageId, page.accessToken);
   };
 
   const addApprovedLink = async (link: ApprovedLink) => {
@@ -330,11 +338,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       return [...prev, page];
     });
     await dbService.put('pages', page);
-    try {
-      setConversations(await dbService.getAll<Conversation>('conversations'));
-    } catch (e) {
-      console.error("Initial sync for page failed", e);
-    }
     setDbStatus('connected');
   };
 
