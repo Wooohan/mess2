@@ -71,9 +71,9 @@ const InboxView: React.FC = () => {
   };
 
   return (
-    <div className="flex h-[calc(100vh-40px)] bg-white overflow-hidden rounded-3xl md:rounded-[40px] border border-slate-100 shadow-2xl shadow-slate-200/40 relative">
-      {/* Sidebar List */}
-      <div className={`w-full md:w-80 border-r border-slate-100 flex flex-col bg-slate-50/30 transition-all ${activeConvId ? 'hidden md:flex' : 'flex'}`}>
+    <div className="flex h-[calc(100vh-40px)] bg-white overflow-hidden rounded-3xl md:rounded-[40px] border border-slate-100 shadow-2xl shadow-slate-200/40 relative max-w-full">
+      {/* Sidebar List - Hidden on mobile if chat is active */}
+      <div className={`w-full md:w-80 border-r border-slate-100 flex flex-col bg-slate-50/30 transition-all shrink-0 ${activeConvId ? 'hidden md:flex' : 'flex'}`}>
         <div className="p-4 md:p-6 space-y-4 shrink-0">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-bold text-slate-800 tracking-tight">Messages</h2>
@@ -92,13 +92,14 @@ const InboxView: React.FC = () => {
             <input 
               type="text" 
               placeholder="Search chats..."
+              style={{ fontSize: '16px' }} // Prevent mobile zoom
               className="w-full pl-11 pr-4 py-3 bg-white border border-slate-200 rounded-2xl text-sm outline-none shadow-sm focus:ring-4 focus:ring-blue-50 focus:border-blue-400 transition-all"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
 
-          <div className="flex gap-1 overflow-x-auto pb-1 no-scrollbar">
+          <div className="flex gap-1 overflow-x-auto pb-1 no-scrollbar shrink-0">
             {(['ALL', ConversationStatus.OPEN, ConversationStatus.PENDING, ConversationStatus.RESOLVED] as const).map((stat) => (
               <button
                 key={stat}
@@ -132,13 +133,13 @@ const InboxView: React.FC = () => {
                 <button
                   key={conv.id}
                   onClick={() => setActiveConvId(conv.id)}
-                  className={`w-full text-left p-3 md:p-4 rounded-2xl md:rounded-[28px] transition-all border relative group ${
+                  className={`w-full text-left p-3 md:p-4 rounded-2xl md:rounded-[28px] transition-all border relative group min-w-0 ${
                     isActive 
                       ? 'bg-white border-blue-500 shadow-xl shadow-blue-100/50 ring-4 ring-blue-50' 
                       : 'bg-transparent border-transparent hover:bg-white hover:border-slate-200'
                   }`}
                 >
-                  <div className="flex gap-3">
+                  <div className="flex gap-3 min-w-0">
                     <div className="relative flex-shrink-0">
                       <CachedAvatar conversation={conv} className="w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl shadow-sm object-cover" />
                       <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-white rounded-full flex items-center justify-center shadow-sm">
@@ -157,10 +158,10 @@ const InboxView: React.FC = () => {
                       </div>
                       <p className="text-xs truncate text-slate-500 mb-2">{conv.lastMessage}</p>
                       <div className="flex items-center gap-2">
-                        <span className={`px-2 py-0.5 rounded-lg text-[8px] font-black uppercase tracking-tighter border ${getStatusColor(conv.status)}`}>
+                        <span className={`px-2 py-0.5 rounded-lg text-[8px] font-black uppercase tracking-tighter border shrink-0 ${getStatusColor(conv.status)}`}>
                           {conv.status}
                         </span>
-                        <div className="flex items-center gap-1 text-[8px] font-bold text-slate-400 uppercase tracking-widest bg-slate-50 border border-slate-100 px-1.5 py-0.5 rounded-lg truncate max-w-[80px]">
+                        <div className="flex items-center gap-1 text-[8px] font-bold text-slate-400 uppercase tracking-widest bg-slate-50 border border-slate-100 px-1.5 py-0.5 rounded-lg truncate max-w-[100px]">
                            {page?.name || 'Page'}
                         </div>
                       </div>
@@ -178,13 +179,14 @@ const InboxView: React.FC = () => {
         </div>
       </div>
 
-      {/* Main Chat View */}
-      <div className={`flex-1 bg-white relative ${!activeConvId ? 'hidden md:flex' : 'flex h-full'}`}>
+      {/* Main Chat View - Full width on mobile when active */}
+      <div className={`flex-1 bg-white relative min-w-0 ${!activeConvId ? 'hidden md:flex' : 'flex h-full w-full'}`}>
         {activeConv ? (
-          <div className="flex flex-col w-full h-full">
+          <div className="flex flex-col w-full h-full min-w-0">
+            {/* Back button only on mobile */}
             <button 
               onClick={() => setActiveConvId(null)}
-              className="md:hidden absolute top-5 left-4 z-50 p-2 bg-slate-100 text-slate-600 rounded-full"
+              className="md:hidden absolute top-5 left-4 z-50 p-2 bg-slate-100 text-slate-600 rounded-full shadow-sm active:scale-95 transition-transform"
             >
               <ChevronLeft size={20} />
             </button>
@@ -195,9 +197,9 @@ const InboxView: React.FC = () => {
              <div className="w-20 h-20 bg-white rounded-[32px] flex items-center justify-center mb-6 shadow-sm border border-slate-100">
                <MessageSquareOff size={32} className="text-slate-200" />
              </div>
-             <h3 className="text-slate-800 font-bold mb-2">Manual Sync Required</h3>
+             <h3 className="text-slate-800 font-bold mb-2">Select a Conversation</h3>
              <p className="text-xs text-slate-400 max-w-[200px] leading-relaxed">
-               New chats appear automatically. Press Sync Meta to pull historical threads and avatars.
+               Choose a chat from the left sidebar to start communicating with customers in real-time.
              </p>
           </div>
         )}
