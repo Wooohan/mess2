@@ -56,6 +56,17 @@ export class DBService {
       transaction.oncomplete = () => resolve();
     });
   }
+
+  async clearStore(storeName: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (!this.db) return reject('DB not initialized');
+      const transaction = this.db.transaction(storeName, 'readwrite');
+      const store = transaction.objectStore(storeName);
+      const request = store.clear();
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject('Clear store failed');
+    });
+  }
 }
 
 export const dbService = new DBService();
