@@ -96,6 +96,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, [conversations, currentUser]);
 
   const syncMetaConversations = async () => {
+    if (pages.length === 0) return;
     setDbStatus('syncing');
     try {
       for (const page of pages) {
@@ -109,7 +110,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           }
         }
       }
-      // Refresh local state
       setConversations(await dbService.getAll<Conversation>('conversations'));
       setMessages(await dbService.getAll<Message>('messages'));
     } catch (e) {
@@ -130,8 +130,21 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const addPage = async (page: FacebookPage) => {
     setDbStatus('syncing');
-    setPages(prev => [...prev, page]);
+    setPages(prev => {
+      if (prev.find(p => p.id === page.id)) return prev;
+      return [...prev, page];
+    });
     await dbService.put('pages', page);
+    // Auto-sync conversations for this new page immediately
+    try {
+      const metaConvs = await fetchPageConversations(page.id, page.accessToken);
+      for (const conv of metaConvs) {
+        await dbService.put('conversations', conv);
+      }
+      setConversations(await dbService.getAll<Conversation>('conversations'));
+    } catch (e) {
+      console.error("Initial sync for page failed", e);
+    }
     setDbStatus('connected');
   };
 
@@ -203,7 +216,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       conversations, updateConversation,
       messages, addMessage,
       agents, addAgent: async (a) => { setAgents(p => [...p, a]); await dbService.put('agents', a); },
-      updateUser: async (id, u) => { /* logic */ },
+      updateUser: async (id, u) => { 
+        const updated = agents.map(a => a.id === id ? { ...a, ...u } : a);
+        setAgents(updated);
+        const agent = updated.find(a => a.id === id);
+        if (agent) await dbService.put('agents', agent);
+      },
       login, logout, syncMetaConversations,
       simulateIncomingWebhook,
       approvedLinks, setApprovedLinks,
