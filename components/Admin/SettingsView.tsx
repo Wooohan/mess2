@@ -1,21 +1,21 @@
 
 import React, { useState } from 'react';
-import { Settings, Shield, Globe, Bell, Smartphone, User, Database, CheckCircle2, Save, Trash2, AlertTriangle, X, Loader2, RefreshCw, History } from 'lucide-react';
+import { Settings, Shield, Globe, Bell, Smartphone, User, Database, CheckCircle2, Save, Trash2, AlertTriangle, X, Loader2, RefreshCw } from 'lucide-react';
 import { useApp } from '../../store/AppContext';
 import { UserRole } from '../../types';
 
 const SettingsView: React.FC = () => {
-  const { currentUser, updateUser, dbStatus, clearLocalChats, syncFullHistory, isHistorySynced } = useApp();
+  const { currentUser, updateUser, dbStatus, clearLocalChats, syncFullHistory } = useApp();
   const isAdmin = currentUser?.role === UserRole.SUPER_ADMIN;
 
   const [portalName, setPortalName] = useState('MessengerFlow Portal');
   const [strictMode, setStrictMode] = useState(true);
   const [notifEnabled, setNotifEnabled] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSyncingAll, setIsSyncingAll] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [showPurgeConfirm, setShowPurgeConfirm] = useState(false);
   const [isPurging, setIsPurging] = useState(false);
-  const [isSyncingAll, setIsSyncingAll] = useState(false);
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -38,8 +38,8 @@ const SettingsView: React.FC = () => {
       await syncFullHistory();
       setShowSuccess(true);
       setTimeout(() => setShowSuccess(false), 3000);
-    } catch (e) {
-      alert("Failed to sync history. Please check Facebook connection.");
+    } catch (err) {
+      alert("Failed to sync history. Check Meta Page Token.");
     } finally {
       setIsSyncingAll(false);
     }
@@ -64,7 +64,7 @@ const SettingsView: React.FC = () => {
 
       {showSuccess && (
         <div className="p-4 bg-emerald-500 text-white rounded-2xl font-bold text-sm flex items-center gap-3 animate-in slide-in-from-top-4">
-           <CheckCircle2 size={20} /> Settings updated and synchronized across all agent terminals.
+           <CheckCircle2 size={20} /> Operation successful.
         </div>
       )}
 
@@ -122,29 +122,29 @@ const SettingsView: React.FC = () => {
               {isAdmin && (
                 <div className="space-y-6">
                   <div className="flex items-center gap-3 border-b border-slate-50 pb-4">
-                    <History size={20} className="text-blue-500" />
-                    <h3 className="font-bold text-slate-800">Data Management</h3>
+                    <RefreshCw size={20} className="text-blue-500" />
+                    <h3 className="font-bold text-slate-800">Advanced Sync Tools</h3>
                   </div>
                   <div className="space-y-4">
-                    <div className="p-6 bg-blue-50 rounded-3xl border border-blue-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                      <div className="max-w-[240px]">
-                        <h4 className="text-sm font-bold text-blue-800">Sync All Chat History</h4>
-                        <p className="text-[10px] text-blue-600 mt-1 leading-relaxed">Retrieves up to 100 historical threads and participant avatars from Meta.</p>
+                    <div className="p-6 bg-blue-50 rounded-3xl border border-blue-100 flex flex-col md:flex-row items-center justify-between gap-4">
+                      <div>
+                        <h4 className="text-sm font-bold text-blue-800">Sync All History</h4>
+                        <p className="text-[10px] text-blue-600 mt-1 uppercase font-black">Fetches 100+ chats from Meta</p>
                       </div>
                       <button 
                         onClick={handleSyncAll}
                         disabled={isSyncingAll}
-                        className="px-6 py-3 bg-blue-600 text-white rounded-xl font-bold text-[10px] uppercase tracking-widest hover:bg-blue-700 transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-100 disabled:opacity-50"
+                        className="px-6 py-3 bg-blue-600 text-white rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-blue-700 transition-all flex items-center gap-2 shadow-lg shadow-blue-100"
                       >
-                        {isSyncingAll ? <Loader2 className="animate-spin" size={14} /> : <RefreshCw size={14} />}
-                        {isSyncingAll ? 'Processing...' : 'Sync Full History'}
+                        {isSyncingAll ? <Loader2 className="animate-spin" size={16} /> : <RefreshCw size={16} />}
+                        {isSyncingAll ? 'Syncing...' : 'Start Full Sync'}
                       </button>
                     </div>
 
                     <div className="p-6 bg-red-50 rounded-3xl border border-red-100 space-y-4">
                       <div>
                         <h4 className="text-sm font-bold text-red-800">Purge Local Message Database</h4>
-                        <p className="text-xs text-red-600 mt-1">This will delete all conversation and message logs from this portal local storage.</p>
+                        <p className="text-xs text-red-600 mt-1">This will delete all conversation and message logs from this portal. Action is local only.</p>
                       </div>
                       <button 
                         onClick={() => setShowPurgeConfirm(true)}
