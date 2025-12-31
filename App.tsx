@@ -7,6 +7,7 @@ import InboxView from './components/Inbox/InboxView';
 import AgentManagement from './components/Admin/AgentManagement';
 import PageSettings from './components/Admin/PageSettings';
 import MediaLibrary from './components/Admin/MediaLibrary';
+import SettingsView from './components/Admin/SettingsView';
 import { initFacebookSDK } from './services/facebookService';
 import { Mail, Lock, Loader2, AlertCircle, MessageSquare, Bell, Menu } from 'lucide-react';
 
@@ -116,7 +117,7 @@ const PortalContent: React.FC = () => {
       case 'agents': return <AgentManagement />;
       case 'pages': return <PageSettings />;
       case 'library': return <MediaLibrary />;
-      case 'settings': return <div className="p-8 text-slate-500 italic">Settings configuration coming soon.</div>;
+      case 'settings': return <SettingsView />;
       default: return <DashboardView />;
     }
   };
