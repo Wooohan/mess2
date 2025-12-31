@@ -1,11 +1,12 @@
 
 import React, { useState } from 'react';
-import { Settings, Shield, Globe, Bell, Smartphone, User, Database, CheckCircle2, Save } from 'lucide-react';
+// Added Loader2 to the list of icons imported from lucide-react
+import { Settings, Shield, Globe, Bell, Smartphone, User, Database, CheckCircle2, Save, Trash2, AlertTriangle, X, Loader2 } from 'lucide-react';
 import { useApp } from '../../store/AppContext';
 import { UserRole } from '../../types';
 
 const SettingsView: React.FC = () => {
-  const { currentUser, updateUser, dbStatus } = useApp();
+  const { currentUser, updateUser, dbStatus, clearLocalChats } = useApp();
   const isAdmin = currentUser?.role === UserRole.SUPER_ADMIN;
 
   const [portalName, setPortalName] = useState('MessengerFlow Portal');
@@ -13,14 +14,22 @@ const SettingsView: React.FC = () => {
   const [notifEnabled, setNotifEnabled] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
+  const [showPurgeConfirm, setShowPurgeConfirm] = useState(false);
+  const [isPurging, setIsPurging] = useState(false);
 
   const handleSave = async () => {
     setIsSaving(true);
-    // Simulate API delay
     await new Promise(r => setTimeout(r, 800));
     setIsSaving(false);
     setShowSuccess(true);
     setTimeout(() => setShowSuccess(false), 3000);
+  };
+
+  const handlePurge = async () => {
+    setIsPurging(true);
+    await clearLocalChats();
+    setIsPurging(false);
+    setShowPurgeConfirm(false);
   };
 
   return (
@@ -97,6 +106,27 @@ const SettingsView: React.FC = () => {
                 </div>
               </div>
 
+              {isAdmin && (
+                <div className="space-y-6">
+                  <div className="flex items-center gap-3 border-b border-slate-50 pb-4">
+                    <AlertTriangle size={20} className="text-red-500" />
+                    <h3 className="font-bold text-slate-800">Danger Zone</h3>
+                  </div>
+                  <div className="p-6 bg-red-50 rounded-3xl border border-red-100 space-y-4">
+                    <div>
+                      <h4 className="text-sm font-bold text-red-800">Purge Local Message Database</h4>
+                      <p className="text-xs text-red-600 mt-1">This will delete all conversation and message logs from this portal. This action is local only and does not affect the actual Facebook Messenger history.</p>
+                    </div>
+                    <button 
+                      onClick={() => setShowPurgeConfirm(true)}
+                      className="px-6 py-3 bg-red-600 text-white rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-red-700 transition-all flex items-center gap-2"
+                    >
+                      <Trash2 size={16} /> Clear All Chats
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <div className="space-y-6">
                 <div className="flex items-center gap-3 border-b border-slate-50 pb-4">
                    <Shield size={20} className="text-slate-400" />
@@ -137,6 +167,37 @@ const SettingsView: React.FC = () => {
            </div>
         </div>
       </div>
+
+      {/* Purge Confirmation Modal */}
+      {showPurgeConfirm && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[200] flex items-center justify-center p-6 animate-in fade-in duration-200">
+          <div className="bg-white rounded-[40px] shadow-2xl w-full max-w-sm p-10 animate-in zoom-in-95 duration-200 text-center">
+            <div className="w-20 h-20 bg-red-100 text-red-600 rounded-[32px] flex items-center justify-center mx-auto mb-6">
+              <AlertTriangle size={40} />
+            </div>
+            <h3 className="text-2xl font-black text-slate-800 tracking-tight uppercase mb-4">Are you sure?</h3>
+            <p className="text-slate-500 text-sm leading-relaxed mb-8">
+              This will permanently delete <span className="font-bold text-slate-900">all local chat history</span> from this portal. You will need to re-sync with Meta to see messages again.
+            </p>
+            <div className="space-y-3">
+              <button 
+                onClick={handlePurge}
+                disabled={isPurging}
+                className="w-full py-5 bg-red-600 text-white rounded-2xl font-bold uppercase tracking-widest hover:bg-red-700 transition-all flex items-center justify-center gap-2"
+              >
+                {isPurging ? <Loader2 className="animate-spin" size={20} /> : <Trash2 size={20} />}
+                {isPurging ? 'Purging...' : 'Yes, Delete Everything'}
+              </button>
+              <button 
+                onClick={() => setShowPurgeConfirm(false)}
+                className="w-full py-4 bg-slate-50 text-slate-400 rounded-2xl font-bold uppercase tracking-widest hover:bg-slate-100 transition-all"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
