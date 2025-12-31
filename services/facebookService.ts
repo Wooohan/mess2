@@ -102,12 +102,15 @@ export const fetchPageConversations = async (pageId: string, pageAccessToken: st
 
   return (data.data || []).map((conv: any) => {
     const customer = conv.participants?.data?.find((p: any) => p.id !== pageId) || { name: 'Unknown User', id: 'unknown' };
+    // Use the redirecting picture URL for easy avatar loading
+    const avatarUrl = `https://graph.facebook.com/v22.0/${customer.id}/picture?type=large&access_token=${pageAccessToken}`;
+    
     return {
       id: conv.id,
       pageId: pageId,
       customerId: customer.id,
       customerName: customer.name,
-      customerAvatar: `https://graph.facebook.com/v22.0/${customer.id}/picture?type=normal&access_token=${pageAccessToken}`,
+      customerAvatar: avatarUrl,
       lastMessage: conv.snippet || 'No message content',
       lastTimestamp: conv.updated_time,
       status: ConversationStatus.OPEN,
