@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Send, X, Link as LinkIcon, Image as ImageIcon, Library, AlertCircle, ChevronDown, Check, MessageSquare, Loader2, Trash2 } from 'lucide-react';
+import { Send, X, Link as LinkIcon, Image as ImageIcon, Library, AlertCircle, ChevronDown, Check, MessageSquare, Loader2, Trash2, ShieldAlert } from 'lucide-react';
 import { Conversation, Message, ApprovedLink, ApprovedMedia, UserRole, ConversationStatus } from '../../types';
 import { useApp } from '../../store/AppContext';
 import { sendPageMessage, fetchThreadMessages } from '../../services/facebookService';
@@ -9,6 +9,35 @@ interface ChatWindowProps {
   conversation: Conversation;
   onDelete?: () => void;
 }
+
+const CachedAvatar: React.FC<{ conversation: Conversation, className?: string }> = ({ conversation, className }) => {
+  const [url, setUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (conversation.customerAvatarBlob) {
+      const objectUrl = URL.createObjectURL(conversation.customerAvatarBlob);
+      setUrl(objectUrl);
+      return () => URL.revokeObjectURL(objectUrl);
+    }
+    setUrl(null);
+  }, [conversation.customerAvatarBlob]);
+
+  if (url) {
+    return (
+      <img 
+        src={url} 
+        className={className} 
+        alt="" 
+      />
+    );
+  }
+
+  return (
+    <div className={`${className} bg-slate-200 flex items-center justify-center text-slate-400 font-bold text-sm uppercase overflow-hidden`}>
+      {conversation.customerName.charAt(0)}
+    </div>
+  );
+};
 
 const ChatWindow: React.FC<ChatWindowProps> = ({ conversation, onDelete }) => {
   const { currentUser, messages, addMessage, pages, approvedLinks, approvedMedia, updateConversation, deleteConversation } = useApp();
@@ -27,7 +56,6 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation, onDelete }) => {
       .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
   , [messages, conversation.id]);
 
-  // Deep Sync: Fetch real messages from Meta whenever the conversation changes
   useEffect(() => {
     let isMounted = true;
     const syncThread = async () => {
@@ -39,7 +67,6 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation, onDelete }) => {
         const metaMsgs = await fetchThreadMessages(conversation.id, page.id, page.accessToken);
         if (isMounted) {
           for (const msg of metaMsgs) {
-            // Check if message exists already to prevent duplicates
             if (!messages.find(m => m.id === msg.id)) {
               await addMessage(msg);
             }
@@ -54,7 +81,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation, onDelete }) => {
 
     syncThread();
     return () => { isMounted = false; };
-  }, [conversation.id, pages]);
+  }, [conversation.id, pages, messages]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -133,11 +160,78 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation, onDelete }) => {
   };
 
   return (
-    <div className="flex flex-col h-full bg-white relative">
-      <div className="px-4 md:px-8 py-4 md:py-5 border-b border-slate-100 flex items-center justify-between bg-white/80 backdrop-blur-xl sticky top-0 z-30">
+    <div className="flex flex-col h-full bg-white relative overflow-hidden">
+      {/* Centered Modal Library */}
+      {showLibrary && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-10 animate-in fade-in duration-300">
+           <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-md" onClick={() => setShowLibrary(false)} />
+           <div className="bg-white rounded-[40px] shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col overflow-hidden relative z-10 animate-in zoom-in-95 duration-300 border border-slate-100">
+             <div className="p-6 md:p-8 bg-slate-50/50 border-b flex justify-between items-center shrink-0">
+                <div className="flex items-center gap-3">
+                   <div className="p-2 bg-blue-600 text-white rounded-xl shadow-lg shadow-blue-100">
+                      <Library size={20} />
+                   </div>
+                   <span className="text-sm font-black uppercase tracking-widest text-slate-800">Compliance Asset Library</span>
+                </div>
+                <button onClick={() => setShowLibrary(false)} className="p-2 hover:bg-white rounded-full transition-all text-slate-400">
+                   <X size={24} />
+                </button>
+             </div>
+             
+             <div className="flex-1 overflow-y-auto p-6 md:p-8 custom-scrollbar">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {approvedLinks.length > 0 && (
+                    <div className="col-span-full mb-2">
+                       <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Verified Links</h4>
+                    </div>
+                  )}
+                  {approvedLinks.map(link => (
+                    <button onClick={() => handleSend(link.url)} key={link.id} className="text-left p-4 rounded-2xl border border-slate-100 hover:border-blue-500 hover:bg-blue-50 transition-all flex items-center gap-4 min-w-0 group bg-white">
+                       <div className="p-3 bg-blue-50 text-blue-600 rounded-xl flex-shrink-0 group-hover:scale-110 transition-transform">
+                          <LinkIcon size={18} />
+                       </div>
+                       <div className="truncate">
+                         <p className="text-sm font-bold text-slate-700 truncate">{link.title}</p>
+                         <p className="text-[10px] text-slate-400 font-medium truncate uppercase tracking-tight">{link.url}</p>
+                       </div>
+                    </button>
+                  ))}
+                  
+                  {approvedMedia.length > 0 && (
+                    <div className="col-span-full mt-4 mb-2">
+                       <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Image Assets</h4>
+                    </div>
+                  )}
+                  {approvedMedia.map(media => (
+                    <button onClick={() => handleSend(media.url)} key={media.id} className="relative aspect-video rounded-3xl overflow-hidden border-2 border-slate-50 group shadow-sm">
+                       <img src={media.url} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                       <div className="absolute inset-0 bg-slate-900/60 flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity p-4">
+                          <ImageIcon size={24} className="text-white mb-2" />
+                          <span className="text-white font-black text-[10px] uppercase tracking-widest text-center">{media.title}</span>
+                       </div>
+                    </button>
+                  ))}
+
+                  {approvedLinks.length === 0 && approvedMedia.length === 0 && (
+                    <div className="col-span-full py-12 flex flex-col items-center text-slate-300">
+                       <ShieldAlert size={48} className="opacity-20 mb-4" />
+                       <p className="text-[10px] font-black uppercase tracking-widest">Library Empty</p>
+                    </div>
+                  )}
+                </div>
+             </div>
+             
+             <div className="p-6 bg-slate-50 border-t flex justify-center shrink-0">
+                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-tight">Only approved assets may be dispatched via this terminal.</p>
+             </div>
+           </div>
+        </div>
+      )}
+
+      <div className="px-4 md:px-8 py-4 md:py-5 border-b border-slate-100 flex items-center justify-between bg-white/80 backdrop-blur-xl shrink-0 z-30">
         <div className="flex items-center gap-3 md:gap-4 ml-10 md:ml-0">
           <div className="relative flex-shrink-0">
-            <img src={conversation.customerAvatar} className="w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl object-cover shadow-sm bg-slate-100" />
+            <CachedAvatar conversation={conversation} className="w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl object-cover shadow-sm bg-slate-100" />
             <div className="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-green-500 border-2 border-white rounded-full"></div>
           </div>
           <div className="min-w-0">
@@ -226,58 +320,29 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation, onDelete }) => {
         ))}
       </div>
 
-      <div className="p-4 md:p-8 border-t border-slate-100 bg-white relative">
+      <div className="p-4 md:p-8 border-t border-slate-100 bg-white shrink-0">
         {lastError && (
           <div className="mb-4 p-3 bg-red-50 text-red-600 text-[10px] font-bold rounded-xl flex items-center gap-2 animate-shake border border-red-100">
             <AlertCircle size={14} /> {lastError}
           </div>
         )}
 
-        {showLibrary && (
-          <div className="absolute bottom-full right-4 md:right-8 mb-4 bg-white border border-slate-100 shadow-2xl rounded-[32px] overflow-hidden z-50 animate-in slide-in-from-bottom-4 duration-200 w-[calc(100%-32px)] md:w-1/2 max-w-[500px]">
-             <div className="p-4 bg-slate-50/50 border-b flex justify-between items-center">
-                <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Compliance Verified Assets</span>
-                <button onClick={() => setShowLibrary(false)} className="p-1.5 hover:bg-white rounded-lg"><X size={16} /></button>
-             </div>
-             <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-64 overflow-y-auto">
-                {approvedLinks.map(link => (
-                  <button onClick={() => handleSend(link.url)} key={link.id} className="text-left p-3 rounded-xl border border-slate-100 hover:border-blue-500 hover:bg-blue-50 transition-all flex items-center gap-3 min-w-0">
-                     <div className="p-2 bg-blue-50 text-blue-600 rounded-lg flex-shrink-0">
-                        <LinkIcon size={14} />
-                     </div>
-                     <div className="truncate">
-                       <p className="text-xs font-bold text-slate-700 truncate">{link.title}</p>
-                       <p className="text-[8px] text-slate-400 font-medium truncate">{link.url}</p>
-                     </div>
-                  </button>
-                ))}
-                {approvedMedia.map(media => (
-                  <button onClick={() => handleSend(media.url)} key={media.id} className="relative aspect-[2/1] rounded-2xl overflow-hidden border border-slate-100 group">
-                     <img src={media.url} className="w-full h-full object-cover" />
-                     <div className="absolute inset-0 bg-slate-900/40 flex flex-col items-center justify-center opacity-0 hover:opacity-100 transition-opacity p-2">
-                        <span className="text-white font-black text-[9px] uppercase">Send Media</span>
-                     </div>
-                  </button>
-                ))}
-             </div>
-          </div>
-        )}
-
-        <div className="flex items-end gap-2 md:gap-3">
+        <div className="flex items-end gap-2 md:gap-3 max-w-full">
            <button 
-             onClick={() => setShowLibrary(!showLibrary)}
-             className={`p-3.5 md:p-4 rounded-xl md:rounded-2xl transition-all ${showLibrary ? 'bg-blue-600 text-white' : 'bg-slate-50 text-slate-400 hover:bg-blue-50'}`}
+             onClick={() => setShowLibrary(true)}
+             className={`p-3.5 md:p-4 rounded-xl md:rounded-2xl transition-all shrink-0 ${showLibrary ? 'bg-blue-600 text-white' : 'bg-slate-50 text-slate-400 hover:bg-blue-50'}`}
              title="Verified Assets"
            >
              <Library size={20} />
            </button>
-           <div className="flex-1 relative">
+           <div className="flex-1 relative min-w-0">
              <textarea
                value={inputText}
                onChange={e => setInputText(e.target.value)}
-               className="w-full bg-slate-50 border border-slate-100 rounded-2xl md:rounded-3xl p-3 md:p-4 text-sm outline-none focus:ring-4 focus:ring-blue-50 focus:border-blue-200 transition-all resize-none max-h-32"
+               className="w-full bg-slate-50 border border-slate-100 rounded-2xl md:rounded-3xl p-3 md:p-4 text-sm md:text-base outline-none focus:ring-4 focus:ring-blue-50 focus:border-blue-200 transition-all resize-none max-h-32 custom-scrollbar min-h-[48px]"
                placeholder="Write a message..."
                rows={1}
+               style={{ fontSize: '16px' }} // Critical to prevent iOS zoom
                onKeyDown={(e) => {
                  if (e.key === 'Enter' && !e.shiftKey && window.innerWidth > 768) {
                    e.preventDefault();
