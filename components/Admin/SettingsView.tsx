@@ -1,12 +1,11 @@
 
 import React, { useState } from 'react';
-// Added Loader2 to the list of icons imported from lucide-react
-import { Settings, Shield, Globe, Bell, Smartphone, User, Database, CheckCircle2, Save, Trash2, AlertTriangle, X, Loader2 } from 'lucide-react';
+import { Settings, Shield, Globe, Bell, Smartphone, User, Database, CheckCircle2, Save, Trash2, AlertTriangle, X, Loader2, RefreshCw, History } from 'lucide-react';
 import { useApp } from '../../store/AppContext';
 import { UserRole } from '../../types';
 
 const SettingsView: React.FC = () => {
-  const { currentUser, updateUser, dbStatus, clearLocalChats } = useApp();
+  const { currentUser, updateUser, dbStatus, clearLocalChats, syncFullHistory, isHistorySynced } = useApp();
   const isAdmin = currentUser?.role === UserRole.SUPER_ADMIN;
 
   const [portalName, setPortalName] = useState('MessengerFlow Portal');
@@ -16,6 +15,7 @@ const SettingsView: React.FC = () => {
   const [showSuccess, setShowSuccess] = useState(false);
   const [showPurgeConfirm, setShowPurgeConfirm] = useState(false);
   const [isPurging, setIsPurging] = useState(false);
+  const [isSyncingAll, setIsSyncingAll] = useState(false);
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -30,6 +30,19 @@ const SettingsView: React.FC = () => {
     await clearLocalChats();
     setIsPurging(false);
     setShowPurgeConfirm(false);
+  };
+
+  const handleSyncAll = async () => {
+    setIsSyncingAll(true);
+    try {
+      await syncFullHistory();
+      setShowSuccess(true);
+      setTimeout(() => setShowSuccess(false), 3000);
+    } catch (e) {
+      alert("Failed to sync history. Please check Facebook connection.");
+    } finally {
+      setIsSyncingAll(false);
+    }
   };
 
   return (
@@ -109,20 +122,37 @@ const SettingsView: React.FC = () => {
               {isAdmin && (
                 <div className="space-y-6">
                   <div className="flex items-center gap-3 border-b border-slate-50 pb-4">
-                    <AlertTriangle size={20} className="text-red-500" />
-                    <h3 className="font-bold text-slate-800">Danger Zone</h3>
+                    <History size={20} className="text-blue-500" />
+                    <h3 className="font-bold text-slate-800">Data Management</h3>
                   </div>
-                  <div className="p-6 bg-red-50 rounded-3xl border border-red-100 space-y-4">
-                    <div>
-                      <h4 className="text-sm font-bold text-red-800">Purge Local Message Database</h4>
-                      <p className="text-xs text-red-600 mt-1">This will delete all conversation and message logs from this portal. This action is local only and does not affect the actual Facebook Messenger history.</p>
+                  <div className="space-y-4">
+                    <div className="p-6 bg-blue-50 rounded-3xl border border-blue-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                      <div className="max-w-[240px]">
+                        <h4 className="text-sm font-bold text-blue-800">Sync All Chat History</h4>
+                        <p className="text-[10px] text-blue-600 mt-1 leading-relaxed">Retrieves up to 100 historical threads and participant avatars from Meta.</p>
+                      </div>
+                      <button 
+                        onClick={handleSyncAll}
+                        disabled={isSyncingAll}
+                        className="px-6 py-3 bg-blue-600 text-white rounded-xl font-bold text-[10px] uppercase tracking-widest hover:bg-blue-700 transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-100 disabled:opacity-50"
+                      >
+                        {isSyncingAll ? <Loader2 className="animate-spin" size={14} /> : <RefreshCw size={14} />}
+                        {isSyncingAll ? 'Processing...' : 'Sync Full History'}
+                      </button>
                     </div>
-                    <button 
-                      onClick={() => setShowPurgeConfirm(true)}
-                      className="px-6 py-3 bg-red-600 text-white rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-red-700 transition-all flex items-center gap-2"
-                    >
-                      <Trash2 size={16} /> Clear All Chats
-                    </button>
+
+                    <div className="p-6 bg-red-50 rounded-3xl border border-red-100 space-y-4">
+                      <div>
+                        <h4 className="text-sm font-bold text-red-800">Purge Local Message Database</h4>
+                        <p className="text-xs text-red-600 mt-1">This will delete all conversation and message logs from this portal local storage.</p>
+                      </div>
+                      <button 
+                        onClick={() => setShowPurgeConfirm(true)}
+                        className="px-6 py-3 bg-red-600 text-white rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-red-700 transition-all flex items-center gap-2"
+                      >
+                        <Trash2 size={16} /> Clear All Chats
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
