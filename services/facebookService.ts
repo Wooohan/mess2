@@ -4,7 +4,7 @@ import { FacebookPage } from '../types';
 /**
  * Meta App ID provided by user: 1938499797069544
  */
-const FB_APP_ID: string = '1938499797069544'; 
+const FB_APP_ID: string = '1148755260666274'; 
 
 let sdkPromise: Promise<void> | null = null;
 
