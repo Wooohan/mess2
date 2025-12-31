@@ -72,9 +72,6 @@ export const loginWithFacebook = async () => {
   });
 };
 
-/**
- * Fetches the list of Facebook pages the current user manages using the Graph API.
- */
 export const fetchUserPages = async (): Promise<FacebookPage[]> => {
   await initFacebookSDK();
   return new Promise((resolve, reject) => {
@@ -108,11 +105,10 @@ export const verifyPageAccessToken = async (pageId: string, accessToken: string)
 };
 
 /**
- * Optimized fetch for conversations including picture expansion.
- * We prioritize the expanded picture data to minimize hits to /picture endpoint.
+ * Enhanced fetch with limit support. Default limit increased to 100 for historical sync.
  */
-export const fetchPageConversations = async (pageId: string, pageAccessToken: string): Promise<Conversation[]> => {
-  const url = `https://graph.facebook.com/v22.0/${pageId}/conversations?fields=id,snippet,updated_time,participants{id,name,picture.type(large)},unread_count&access_token=${pageAccessToken}`;
+export const fetchPageConversations = async (pageId: string, pageAccessToken: string, limit: number = 100): Promise<Conversation[]> => {
+  const url = `https://graph.facebook.com/v22.0/${pageId}/conversations?fields=id,snippet,updated_time,participants{id,name,picture.type(large)},unread_count&limit=${limit}&access_token=${pageAccessToken}`;
   const response = await fetch(url);
   const data = await response.json();
   
@@ -120,8 +116,6 @@ export const fetchPageConversations = async (pageId: string, pageAccessToken: st
 
   return (data.data || []).map((conv: any) => {
     const customer = conv.participants?.data?.find((p: any) => p.id !== pageId) || { name: 'Messenger User', id: 'unknown' };
-    
-    // Prefer the explicit URL from the expanded picture field
     const avatarUrl = customer.picture?.data?.url || 
                      `https://graph.facebook.com/v22.0/${customer.id}/picture?type=large&access_token=${pageAccessToken}`;
     
@@ -141,10 +135,14 @@ export const fetchPageConversations = async (pageId: string, pageAccessToken: st
 };
 
 /**
- * Fetches thread messages.
+ * Thread fetch with optional 'since' parameter to strictly limit data ingress for delta polling.
  */
-export const fetchThreadMessages = async (conversationId: string, pageId: string, pageAccessToken: string): Promise<Message[]> => {
-  const url = `https://graph.facebook.com/v22.0/${conversationId}/messages?fields=id,message,created_time,from&access_token=${pageAccessToken}`;
+export const fetchThreadMessages = async (conversationId: string, pageId: string, pageAccessToken: string, since?: number): Promise<Message[]> => {
+  let url = `https://graph.facebook.com/v22.0/${conversationId}/messages?fields=id,message,created_time,from&access_token=${pageAccessToken}`;
+  if (since) {
+    url += `&since=${since}`;
+  }
+  
   const response = await fetch(url);
   const data = await response.json();
 
@@ -152,7 +150,6 @@ export const fetchThreadMessages = async (conversationId: string, pageId: string
 
   return (data.data || []).map((msg: any) => {
     const isFromPage = msg.from.id === pageId;
-    
     return {
       id: msg.id,
       conversationId: conversationId,
