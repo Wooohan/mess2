@@ -22,6 +22,7 @@ interface AppContextType {
   removePage: (id: string) => Promise<void>;
   conversations: Conversation[];
   updateConversation: (id: string, updates: Partial<Conversation>) => Promise<void>;
+  deleteConversation: (id: string) => Promise<void>;
   messages: Message[];
   addMessage: (msg: Message) => Promise<void>;
   bulkAddMessages: (msgs: Message[], silent?: boolean) => Promise<void>;
@@ -73,7 +74,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isHistorySynced, setIsHistorySynced] = useState(localStorage.getItem(SYNCED_KEY) === 'true');
   
-  // Track exactly when this portal session started to filter out background history
   const [portalActivationTime] = useState<number>(Date.now());
 
   useEffect(() => {
@@ -109,7 +109,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     initDatabase();
   }, []);
 
-  // BACKGROUND DELTA SYNC: Periodically catch only truly new conversations
   useEffect(() => {
     if (pages.length === 0) return;
     
@@ -120,13 +119,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       for (const page of pages) {
         if (!page.accessToken) continue;
         try {
-          // Poll for just the most recent 5 conversations
           const metaConvs = await fetchPageConversations(page.id, page.accessToken, 5, false);
           for (const conv of metaConvs) {
             const local = existingMap.get(conv.id);
             const convTime = new Date(conv.lastTimestamp).getTime();
 
-            // REQUIREMENT: If history isn't synced, ignore conversations updated BEFORE portal activation.
             if (!isHistorySynced && convTime < portalActivationTime) {
               continue; 
             }
@@ -203,7 +200,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
       for (const page of pages) {
         if (!page.accessToken) continue;
-        // MANUAL SYNC: Higher limit (100) to ensure we get all 16+ chats
         const metaConvs = await fetchPageConversations(page.id, page.accessToken, 100, true);
         
         for (const conv of metaConvs) {
@@ -237,10 +233,29 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setMessages([]);
       setIsHistorySynced(false);
       localStorage.setItem(SYNCED_KEY, 'false');
-      // Reset portal activation time to current so background sync doesn't immediately pull back the old chats
       window.location.reload(); 
     } catch (e) {
       console.error("Clear failed", e);
+    } finally {
+      setDbStatus('connected');
+    }
+  };
+
+  const deleteConversation = async (id: string) => {
+    setDbStatus('syncing');
+    try {
+      await dbService.delete('conversations', id);
+      // Also delete all messages associated with this conversation
+      const allMsgs = await dbService.getAll<Message>('messages');
+      for (const msg of allMsgs) {
+        if (msg.conversationId === id) {
+          await dbService.delete('messages', msg.id);
+        }
+      }
+      setConversations(prev => prev.filter(c => c.id !== id));
+      setMessages(prev => prev.filter(m => m.conversationId !== id));
+    } catch (e) {
+      console.error("Delete conversation failed", e);
     } finally {
       setDbStatus('connected');
     }
@@ -289,7 +304,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     });
     await dbService.put('pages', page);
     try {
-      // Initial connection is empty by default (Delta mode)
       setConversations(await dbService.getAll<Conversation>('conversations'));
     } catch (e) {
       console.error("Initial sync for page failed", e);
@@ -379,7 +393,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     <AppContext.Provider value={{
       currentUser, setCurrentUser,
       pages, addPage, removePage, updatePage,
-      conversations: sortedConversations, updateConversation,
+      conversations: sortedConversations, updateConversation, deleteConversation,
       messages, addMessage, bulkAddMessages,
       agents, addAgent: async (a) => { setAgents(p => [...p, a]); await dbService.put('agents', a); },
       removeAgent,
