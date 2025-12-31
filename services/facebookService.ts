@@ -1,4 +1,3 @@
-
 import { FacebookPage, Conversation, Message, ConversationStatus } from '../types';
 
 /**
@@ -72,45 +71,66 @@ export const loginWithFacebook = async () => {
   });
 };
 
+/**
+ * Fetches the list of Facebook pages the current user manages using the Graph API.
+ */
 export const fetchUserPages = async (): Promise<FacebookPage[]> => {
   await initFacebookSDK();
   return new Promise((resolve, reject) => {
     (window as any).FB.api('/me/accounts', (response: any) => {
-      if (response && !response.error) {
-        const pages: FacebookPage[] = response.data.map((p: any) => ({
-          id: p.id,
-          name: p.name,
-          category: p.category || 'Business',
-          isConnected: true,
-          accessToken: p.access_token,
-          assignedAgentIds: []
-        }));
-        resolve(pages);
-      } else {
-        reject(response?.error?.message || 'Failed to fetch pages.');
+      if (!response || response.error) {
+        reject(response?.error?.message || 'Failed to fetch pages');
+        return;
       }
+      const pages: FacebookPage[] = (response.data || []).map((p: any) => ({
+        id: p.id,
+        name: p.name,
+        category: p.category,
+        isConnected: true,
+        accessToken: p.access_token,
+        assignedAgentIds: []
+      }));
+      resolve(pages);
     });
   });
 };
 
-/**
- * Fetches conversations with detailed participant info for profile pictures
- */
+export const verifyPageAccessToken = async (pageId: string, accessToken: string): Promise<boolean> => {
+  try {
+    const url = `https://graph.facebook.com/v22.0/${pageId}?fields=id,name&access_token=${accessToken}`;
+    const response = await fetch(url);
+    const data = await response.json();
+    return !!(data && data.id && !data.error);
+  } catch (e) {
+    return false;
+  }
+};
+
 export const fetchPageConversations = async (pageId: string, pageAccessToken: string): Promise<Conversation[]> => {
-  // Requesting participants with name and id specifically
+  // Requesting participants and basic thread info.
   const url = `https://graph.facebook.com/v22.0/${pageId}/conversations?fields=id,snippet,updated_time,participants{id,name},unread_count&access_token=${pageAccessToken}`;
   const response = await fetch(url);
   const data = await response.json();
   
   if (data.error) throw new Error(data.error.message);
 
-  return (data.data || []).map((conv: any) => {
-    // The participant that isn't the page itself is the customer
+  const threads = await Promise.all((data.data || []).map(async (conv: any) => {
     const customer = conv.participants?.data?.find((p: any) => p.id !== pageId) || { name: 'Messenger User', id: 'unknown' };
     
-    // Construct authorized picture URL using PSID and Page Token
-    // We use a large type and square ratio for high quality
-    const avatarUrl = `https://graph.facebook.com/v22.0/${customer.id}/picture?type=large&width=300&height=300&access_token=${pageAccessToken}`;
+    // For PSIDs, we should try to fetch the profile_pic field directly from the user object if possible.
+    // If that fails, we use the picture redirect URL.
+    let avatarUrl = `https://graph.facebook.com/v22.0/${customer.id}/picture?type=large&access_token=${pageAccessToken}`;
+    
+    try {
+      const userProfileUrl = `https://graph.facebook.com/v22.0/${customer.id}?fields=profile_pic&access_token=${pageAccessToken}`;
+      const userRes = await fetch(userProfileUrl);
+      const userData = await userRes.json();
+      if (userData && userData.profile_pic) {
+        avatarUrl = userData.profile_pic;
+      }
+    } catch (err) {
+      console.warn("Could not fetch profile_pic field, falling back to redirect URL");
+    }
     
     return {
       id: conv.id,
@@ -124,7 +144,9 @@ export const fetchPageConversations = async (pageId: string, pageAccessToken: st
       assignedAgentId: null,
       unreadCount: conv.unread_count || 0
     };
-  });
+  }));
+
+  return threads;
 };
 
 export const fetchThreadMessages = async (conversationId: string, pageAccessToken: string): Promise<Message[]> => {
