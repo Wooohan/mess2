@@ -1,12 +1,13 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Send, X, Link as LinkIcon, Image as ImageIcon, Library, AlertCircle, ChevronDown, Check, MessageSquare, Loader2, ShieldAlert } from 'lucide-react';
+import { Send, X, Link as LinkIcon, Image as ImageIcon, Library, AlertCircle, ChevronDown, Check, MessageSquare, Loader2, ShieldAlert, Trash2 } from 'lucide-react';
 import { Conversation, Message, ApprovedLink, ApprovedMedia, UserRole, ConversationStatus } from '../../types';
 import { useApp } from '../../store/AppContext';
 import { sendPageMessage, fetchThreadMessages } from '../../services/facebookService';
 
 interface ChatWindowProps {
   conversation: Conversation;
+  onDelete?: () => void;
 }
 
 const CachedAvatar: React.FC<{ conversation: Conversation, className?: string }> = ({ conversation, className }) => {
@@ -38,8 +39,8 @@ const CachedAvatar: React.FC<{ conversation: Conversation, className?: string }>
   );
 };
 
-const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
-  const { currentUser, messages, bulkAddMessages, pages, approvedLinks, approvedMedia, updateConversation, isHistorySynced } = useApp();
+const ChatWindow: React.FC<ChatWindowProps> = ({ conversation, onDelete }) => {
+  const { currentUser, messages, bulkAddMessages, pages, approvedLinks, approvedMedia, updateConversation, deleteConversation, isHistorySynced } = useApp();
   const [inputText, setInputText] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
@@ -48,6 +49,8 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
   const [showStatusMenu, setShowStatusMenu] = useState(false);
   const [showSecurityPopup, setShowSecurityPopup] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  const isAdmin = currentUser?.role === UserRole.SUPER_ADMIN;
 
   const chatMessages = useMemo(() => {
     return messages
@@ -63,7 +66,6 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
       if (!page?.accessToken || !isMounted) return;
 
       let sinceTimestamp: number | undefined = undefined;
-      // If history isn't synced, only pull messages from the last 10 minutes
       if (!isHistorySynced && isInitial) {
         sinceTimestamp = Math.floor(Date.now() / 1000) - 600; 
       }
@@ -111,11 +113,12 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
   };
 
   const handleSend = async (forcedText?: string) => {
-    // FIXED: Correctly capture forcedText (from Library buttons) or inputText
-    const textToSubmit = (typeof forcedText === 'string' ? forcedText : inputText).trim();
+    const isLibraryCall = typeof forcedText === 'string';
+    const textToSubmit = (isLibraryCall ? forcedText : inputText).trim();
     if (!textToSubmit || isSending) return;
     
-    if (!blockRestrictedLinks(textToSubmit)) {
+    // Security check - Library calls are trusted sources, but we check them anyway just in case of UI tampering
+    if (!isLibraryCall && !blockRestrictedLinks(textToSubmit)) {
       setShowSecurityPopup(true);
       return;
     }
@@ -128,7 +131,6 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
       if (currentPage && currentPage.accessToken) {
         const response = await sendPageMessage(conversation.customerId, textToSubmit, currentPage.accessToken);
         
-        // Optimistic update using exact message ID from Meta to prevent mirroring and double bubbles
         const newMessage: Message = {
           id: response.message_id || `msg-${Date.now()}`,
           conversationId: conversation.id,
@@ -141,12 +143,20 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
         };
         await bulkAddMessages([newMessage]);
       }
-      if (typeof forcedText !== 'string') setInputText('');
+      if (!isLibraryCall) setInputText('');
       setShowLibrary(false);
     } catch (err: any) {
       setLastError(err.message || 'Meta API Error');
     } finally {
       setIsSending(false);
+    }
+  };
+
+  const handleDeleteChat = async () => {
+    if (!isAdmin) return;
+    if (window.confirm("Permanently delete this chat history from portal?")) {
+      await deleteConversation(conversation.id);
+      if (onDelete) onDelete();
     }
   };
 
@@ -214,6 +224,18 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
             </div>
           </div>
         </div>
+
+        <div className="flex items-center gap-2">
+          {isAdmin && (
+            <button 
+              onClick={handleDeleteChat}
+              className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
+              title="Delete Chat Record"
+            >
+              <Trash2 size={20} />
+            </button>
+          )}
+        </div>
       </div>
 
       <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto p-4 md:p-8 space-y-4 md:space-y-6 bg-slate-50/20 custom-scrollbar">
@@ -222,7 +244,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
             <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center shadow-sm border border-slate-100 mb-4">
               <MessageSquare size={24} className="opacity-20" />
             </div>
-            <p className="text-[10px] font-bold uppercase tracking-widest opacity-40">Direct Messenger Socket Active</p>
+            <p className="text-[10px] font-bold uppercase tracking-widest opacity-40">Secure Messenger Socket Active</p>
             {!isHistorySynced && <p className="text-[8px] font-black uppercase tracking-tighter text-blue-500 mt-2">Sync Meta for historical records</p>}
           </div>
         )}
@@ -263,7 +285,15 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
              </div>
              <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-64 overflow-y-auto">
                 {approvedLinks.map(link => (
-                  <button onClick={() => handleSend(link.url)} key={link.id} className="text-left p-3 rounded-xl border border-slate-100 hover:border-blue-500 hover:bg-blue-50 transition-all flex items-center gap-3 min-w-0">
+                  <button 
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleSend(link.url);
+                    }} 
+                    key={link.id} 
+                    className="text-left p-3 rounded-xl border border-slate-100 hover:border-blue-500 hover:bg-blue-50 transition-all flex items-center gap-3 min-w-0"
+                  >
                      <div className="p-2 bg-blue-50 text-blue-600 rounded-lg flex-shrink-0">
                         <LinkIcon size={14} />
                      </div>
@@ -274,7 +304,15 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
                   </button>
                 ))}
                 {approvedMedia.map(media => (
-                  <button onClick={() => handleSend(media.url)} key={media.id} className="relative aspect-[2/1] rounded-2xl overflow-hidden border border-slate-100 group">
+                  <button 
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleSend(media.url);
+                    }} 
+                    key={media.id} 
+                    className="relative aspect-[2/1] rounded-2xl overflow-hidden border border-slate-100 group"
+                  >
                      <img src={media.url} className="w-full h-full object-cover" />
                      <div className="absolute inset-0 bg-slate-900/40 flex flex-col items-center justify-center opacity-0 hover:opacity-100 transition-opacity p-2">
                         <span className="text-white font-black text-[9px] uppercase">Send Media</span>
