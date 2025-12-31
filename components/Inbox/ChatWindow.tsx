@@ -34,7 +34,7 @@ const CachedAvatar: React.FC<{ conversation: Conversation, className?: string }>
 };
 
 const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
-  const { currentUser, messages, bulkAddMessages, pages, approvedLinks, approvedMedia, updateConversation } = useApp();
+  const { currentUser, messages, bulkAddMessages, pages, approvedLinks, approvedMedia, updateConversation, isHistorySynced } = useApp();
   const [inputText, setInputText] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
@@ -57,13 +57,18 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
       const page = pages.find(p => p.id === conversation.pageId);
       if (!page?.accessToken || !isMounted) return;
 
-      // Only show the big spinner if we have absolutely 0 messages locally for this thread
+      // DELTA LOGIC: If history isn't synced, only pull messages from the last 5 minutes.
+      // This satisfies the "don't request old messages unless fetch meta is pressed" requirement.
+      let sinceTimestamp: number | undefined = undefined;
+      if (!isHistorySynced && isInitial) {
+        sinceTimestamp = Math.floor(Date.now() / 1000) - 300; // 5 minutes ago
+      }
+
       if (isInitial && chatMessages.length === 0) setIsLoadingMessages(true);
       
       try {
-        const metaMsgs = await fetchThreadMessages(conversation.id, page.id, page.accessToken);
+        const metaMsgs = await fetchThreadMessages(conversation.id, page.id, page.accessToken, sinceTimestamp);
         if (isMounted) {
-          // Silent delta update (AppContext handles duplicate checking)
           await bulkAddMessages(metaMsgs, true);
         }
       } catch (err) {
@@ -74,13 +79,13 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
     };
 
     syncThread(true);
-    const poll = setInterval(() => syncThread(false), 10000); // 10s Delta Polling
+    const poll = setInterval(() => syncThread(false), 10000); 
     
     return () => {
       isMounted = false;
       clearInterval(poll);
     };
-  }, [conversation.id]); 
+  }, [conversation.id, isHistorySynced]); 
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -155,7 +160,6 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
 
   return (
     <div className="flex flex-col h-full bg-white relative overflow-hidden">
-      {/* Header - Fixed Height */}
       <div className="px-4 md:px-8 py-4 md:py-5 border-b border-slate-100 flex items-center justify-between bg-white/80 backdrop-blur-xl shrink-0 z-30">
         <div className="flex items-center gap-3 md:gap-4 ml-10 md:ml-0">
           <div className="relative flex-shrink-0">
@@ -206,20 +210,20 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
         </div>
       </div>
 
-      {/* Messages - Fills all available vertical space */}
       <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto p-4 md:p-8 space-y-4 md:space-y-6 bg-slate-50/20 custom-scrollbar">
         {chatMessages.length === 0 && !isLoadingMessages && (
           <div className="flex flex-col items-center justify-center py-20 text-slate-300 text-center">
             <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center shadow-sm border border-slate-100 mb-4">
               <MessageSquare size={24} className="opacity-20" />
             </div>
-            <p className="text-[10px] font-bold uppercase tracking-widest opacity-40">Direct Conversation Active</p>
+            <p className="text-[10px] font-bold uppercase tracking-widest opacity-40">Delta Channel Active</p>
+            {!isHistorySynced && <p className="text-[8px] font-black uppercase tracking-tighter text-blue-500 mt-2">Sync History for old messages</p>}
           </div>
         )}
         {isLoadingMessages && chatMessages.length === 0 && (
           <div className="flex flex-col items-center justify-center py-20 text-blue-400/50">
             <Loader2 size={32} className="animate-spin mb-4" />
-            <p className="text-[10px] font-black uppercase tracking-widest">Delta Sync in Progress...</p>
+            <p className="text-[10px] font-black uppercase tracking-widest">Opening Secure Channel...</p>
           </div>
         )}
         {chatMessages.map((msg) => (
@@ -238,7 +242,6 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
         ))}
       </div>
 
-      {/* Input Area - Fixed at bottom */}
       <div className="p-4 md:p-8 border-t border-slate-100 bg-white shrink-0">
         {lastError && (
           <div className="mb-4 p-4 bg-red-600 text-white text-xs font-black rounded-2xl flex items-center gap-3 animate-shake shadow-xl shadow-red-200 border border-red-700">
