@@ -14,6 +14,8 @@ const CachedAvatar: React.FC<{ conversation: Conversation, className?: string }>
       setUrl(objectUrl);
       return () => URL.revokeObjectURL(objectUrl);
     }
+    // If no blob is present, we set it to null to trigger the fallback UI.
+    // We avoid setting it to conversation.customerAvatar URL to prevent the browser from hitting the picture endpoint.
     setUrl(null);
   }, [conversation.customerAvatarBlob]);
 
@@ -27,6 +29,7 @@ const CachedAvatar: React.FC<{ conversation: Conversation, className?: string }>
     );
   }
 
+  // Fallback SVG avatar to prevent any external picture requests
   return (
     <div className={`${className} bg-slate-200 flex items-center justify-center text-slate-400 font-bold text-xs uppercase overflow-hidden`}>
       {conversation.customerName.charAt(0)}
@@ -186,7 +189,7 @@ const InboxView: React.FC = () => {
             >
               <ChevronLeft size={20} />
             </button>
-            <ChatWindow conversation={activeConv} onDelete={() => setActiveConvId(null)} />
+            <ChatWindow conversation={activeConv} />
           </div>
         ) : (
           <div className="h-full w-full flex flex-col items-center justify-center text-slate-300 p-8 text-center bg-slate-50/20">
