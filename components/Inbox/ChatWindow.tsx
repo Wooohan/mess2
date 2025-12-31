@@ -117,7 +117,6 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation, onDelete }) => {
     const textToSubmit = (isLibraryCall ? forcedText : inputText).trim();
     if (!textToSubmit || isSending) return;
     
-    // Security check - Library calls are trusted sources, but we check them anyway just in case of UI tampering
     if (!isLibraryCall && !blockRestrictedLinks(textToSubmit)) {
       setShowSecurityPopup(true);
       return;
@@ -144,7 +143,8 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation, onDelete }) => {
         await bulkAddMessages([newMessage]);
       }
       if (!isLibraryCall) setInputText('');
-      setShowLibrary(false);
+      // Delay closing library UI to prevent flicker/click issues
+      setTimeout(() => setShowLibrary(false), 50);
     } catch (err: any) {
       setLastError(err.message || 'Meta API Error');
     } finally {
@@ -286,12 +286,12 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation, onDelete }) => {
              <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-64 overflow-y-auto">
                 {approvedLinks.map(link => (
                   <button 
-                    onClick={(e) => {
+                    key={link.id} 
+                    onMouseDown={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
                       handleSend(link.url);
                     }} 
-                    key={link.id} 
                     className="text-left p-3 rounded-xl border border-slate-100 hover:border-blue-500 hover:bg-blue-50 transition-all flex items-center gap-3 min-w-0"
                   >
                      <div className="p-2 bg-blue-50 text-blue-600 rounded-lg flex-shrink-0">
@@ -305,12 +305,12 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation, onDelete }) => {
                 ))}
                 {approvedMedia.map(media => (
                   <button 
-                    onClick={(e) => {
+                    key={media.id} 
+                    onMouseDown={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
                       handleSend(media.url);
                     }} 
-                    key={media.id} 
                     className="relative aspect-[2/1] rounded-2xl overflow-hidden border border-slate-100 group"
                   >
                      <img src={media.url} className="w-full h-full object-cover" />
