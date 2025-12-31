@@ -3,7 +3,7 @@ import React, { createContext, useContext, useState, ReactNode, useEffect, useMe
 import { User, UserRole, FacebookPage, Conversation, Message, ConversationStatus, ApprovedLink, ApprovedMedia } from '../types';
 import { MOCK_USERS, MOCK_PAGES, MOCK_CONVERSATIONS } from '../constants';
 import { dbService } from '../services/dbService';
-import { fetchPageConversations, fetchThreadMessages } from '../services/facebookService';
+import { fetchPageConversations, fetchThreadMessages, verifyPageAccessToken } from '../services/facebookService';
 
 interface DashboardStats {
   openChats: number;
@@ -29,6 +29,7 @@ interface AppContextType {
   login: (email: string, password: string) => Promise<boolean>;
   logout: () => Promise<void>;
   syncMetaConversations: () => Promise<void>;
+  verifyPageConnection: (pageId: string) => Promise<boolean>;
   simulateIncomingWebhook: (pageId: string) => Promise<void>;
   approvedLinks: ApprovedLink[];
   addApprovedLink: (link: ApprovedLink) => Promise<void>;
@@ -122,6 +123,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     } finally {
       setDbStatus('connected');
     }
+  };
+
+  const verifyPageConnection = async (pageId: string): Promise<boolean> => {
+    const page = pages.find(p => p.id === pageId);
+    if (!page || !page.accessToken) return false;
+    return await verifyPageAccessToken(page.id, page.accessToken);
   };
 
   const addApprovedLink = async (link: ApprovedLink) => {
@@ -246,7 +253,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         const agent = updated.find(a => a.id === id);
         if (agent) await dbService.put('agents', agent);
       },
-      login, logout, syncMetaConversations,
+      login, logout, syncMetaConversations, verifyPageConnection,
       simulateIncomingWebhook,
       approvedLinks, addApprovedLink, removeApprovedLink,
       approvedMedia, addApprovedMedia, removeApprovedMedia,
