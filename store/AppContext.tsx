@@ -31,9 +31,11 @@ interface AppContextType {
   syncMetaConversations: () => Promise<void>;
   simulateIncomingWebhook: (pageId: string) => Promise<void>;
   approvedLinks: ApprovedLink[];
-  setApprovedLinks: React.Dispatch<React.SetStateAction<ApprovedLink[]>>;
+  addApprovedLink: (link: ApprovedLink) => Promise<void>;
+  removeApprovedLink: (id: string) => Promise<void>;
   approvedMedia: ApprovedMedia[];
-  setApprovedMedia: React.Dispatch<React.SetStateAction<ApprovedMedia[]>>;
+  addApprovedMedia: (media: ApprovedMedia) => Promise<void>;
+  removeApprovedMedia: (id: string) => Promise<void>;
   dashboardStats: DashboardStats;
   dbStatus: 'connected' | 'syncing' | 'error' | 'initializing';
 }
@@ -62,10 +64,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         const linksData = await dbService.getAll<ApprovedLink>('links');
         const mediaData = await dbService.getAll<ApprovedMedia>('media');
 
-        if (agentsData.length === 0) {
+        if (agentsData.length === 0 && MOCK_USERS.length > 0) {
           for (const u of MOCK_USERS) await dbService.put('agents', u);
-          for (const p of MOCK_PAGES) await dbService.put('pages', p);
-          for (const c of MOCK_CONVERSATIONS) await dbService.put('conversations', c);
         }
 
         setAgents(agentsData.length ? agentsData : MOCK_USERS);
@@ -86,14 +86,22 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     initDatabase();
   }, []);
 
+  const sortedConversations = useMemo(() => {
+    return [...conversations].sort((a, b) => 
+      new Date(b.lastTimestamp).getTime() - new Date(a.lastTimestamp).getTime()
+    );
+  }, [conversations]);
+
   const dashboardStats = useMemo(() => {
     const isAdmin = currentUser?.role === UserRole.SUPER_ADMIN;
-    const assignedPageIds = currentUser?.assignedPageIds || [];
-    const relevantConvs = conversations.filter(c => isAdmin || assignedPageIds.includes(c.pageId));
+    const relevantConvs = sortedConversations.filter(c => {
+      const page = pages.find(p => p.id === c.pageId);
+      return isAdmin || (page?.assignedAgentIds || []).includes(currentUser?.id || '');
+    });
     const openChats = relevantConvs.filter(c => c.status === ConversationStatus.OPEN).length;
     const resolvedToday = relevantConvs.filter(c => c.status === ConversationStatus.RESOLVED).length;
     return { openChats, avgResponseTime: "0m 30s", resolvedToday, csat: "98%" };
-  }, [conversations, currentUser]);
+  }, [sortedConversations, currentUser, pages]);
 
   const syncMetaConversations = async () => {
     if (pages.length === 0) return;
@@ -104,10 +112,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         const metaConvs = await fetchPageConversations(page.id, page.accessToken);
         for (const conv of metaConvs) {
           await dbService.put('conversations', conv);
-          const metaMsgs = await fetchThreadMessages(conv.id, page.accessToken);
-          for (const msg of metaMsgs) {
-            await dbService.put('messages', msg);
-          }
+          // Optional: deep fetch messages for each
+          // const metaMsgs = await fetchThreadMessages(conv.id, page.accessToken);
+          // for (const msg of metaMsgs) await dbService.put('messages', msg);
         }
       }
       setConversations(await dbService.getAll<Conversation>('conversations'));
@@ -117,6 +124,26 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     } finally {
       setDbStatus('connected');
     }
+  };
+
+  const addApprovedLink = async (link: ApprovedLink) => {
+    await dbService.put('links', link);
+    setApprovedLinks(prev => [...prev, link]);
+  };
+
+  const removeApprovedLink = async (id: string) => {
+    await dbService.delete('links', id);
+    setApprovedLinks(prev => prev.filter(l => l.id !== id));
+  };
+
+  const addApprovedMedia = async (media: ApprovedMedia) => {
+    await dbService.put('media', media);
+    setApprovedMedia(prev => [...prev, media]);
+  };
+
+  const removeApprovedMedia = async (id: string) => {
+    await dbService.delete('media', id);
+    setApprovedMedia(prev => prev.filter(m => m.id !== id));
   };
 
   const updatePage = async (id: string, updates: Partial<FacebookPage>) => {
@@ -135,7 +162,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       return [...prev, page];
     });
     await dbService.put('pages', page);
-    // Auto-sync conversations for this new page immediately
     try {
       const metaConvs = await fetchPageConversations(page.id, page.accessToken);
       for (const conv of metaConvs) {
@@ -213,7 +239,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     <AppContext.Provider value={{
       currentUser, setCurrentUser,
       pages, addPage, removePage, updatePage,
-      conversations, updateConversation,
+      conversations: sortedConversations, updateConversation,
       messages, addMessage,
       agents, addAgent: async (a) => { setAgents(p => [...p, a]); await dbService.put('agents', a); },
       updateUser: async (id, u) => { 
@@ -224,8 +250,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       },
       login, logout, syncMetaConversations,
       simulateIncomingWebhook,
-      approvedLinks, setApprovedLinks,
-      approvedMedia, setApprovedMedia,
+      approvedLinks, addApprovedLink, removeApprovedLink,
+      approvedMedia, addApprovedMedia, removeApprovedMedia,
       dashboardStats, dbStatus
     }}>
       {children}
