@@ -6,7 +6,7 @@ import { Conversation, ConversationStatus, UserRole } from '../../types';
 import ChatWindow from './ChatWindow';
 
 const CachedAvatar: React.FC<{ conversation: Conversation, className?: string }> = ({ conversation, className }) => {
-  const [url, setUrl] = useState<string>(conversation.customerAvatar);
+  const [url, setUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (conversation.customerAvatarBlob) {
@@ -14,18 +14,26 @@ const CachedAvatar: React.FC<{ conversation: Conversation, className?: string }>
       setUrl(objectUrl);
       return () => URL.revokeObjectURL(objectUrl);
     }
-    setUrl(conversation.customerAvatar);
-  }, [conversation.customerAvatarBlob, conversation.customerAvatar]);
+    // If no blob is present, we set it to null to trigger the fallback UI.
+    // We avoid setting it to conversation.customerAvatar URL to prevent the browser from hitting the picture endpoint.
+    setUrl(null);
+  }, [conversation.customerAvatarBlob]);
 
+  if (url) {
+    return (
+      <img 
+        src={url} 
+        className={className} 
+        alt="" 
+      />
+    );
+  }
+
+  // Fallback SVG avatar to prevent any external picture requests
   return (
-    <img 
-      src={url} 
-      className={className} 
-      alt="" 
-      onError={(e) => {
-        (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(conversation.customerName)}&background=random`;
-      }}
-    />
+    <div className={`${className} bg-slate-200 flex items-center justify-center text-slate-400 font-bold text-xs uppercase overflow-hidden`}>
+      {conversation.customerName.charAt(0)}
+    </div>
   );
 };
 
@@ -190,7 +198,7 @@ const InboxView: React.FC = () => {
              </div>
              <h3 className="text-slate-800 font-bold mb-2">Manual Sync Required</h3>
              <p className="text-xs text-slate-400 max-w-[200px] leading-relaxed">
-               New chats appear automatically. Press Sync Meta to pull historical threads.
+               New chats appear automatically. Press Sync Meta to pull historical threads and avatars.
              </p>
           </div>
         )}
