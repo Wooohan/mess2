@@ -33,13 +33,15 @@ const SettingsView: React.FC = () => {
   };
 
   const handleSyncAll = async () => {
+    if (isSyncingAll) return;
     setIsSyncingAll(true);
     try {
       await syncFullHistory();
       setShowSuccess(true);
-      setTimeout(() => setShowSuccess(false), 3000);
-    } catch (err) {
-      alert("Failed to sync history. Check Meta Page Token.");
+      setTimeout(() => setShowSuccess(false), 5000);
+    } catch (err: any) {
+      console.error("Full Sync Error:", err);
+      alert(`Sync failed: ${err.message || 'Check your Meta Connection and Project Permissions.'}`);
     } finally {
       setIsSyncingAll(false);
     }
@@ -64,7 +66,7 @@ const SettingsView: React.FC = () => {
 
       {showSuccess && (
         <div className="p-4 bg-emerald-500 text-white rounded-2xl font-bold text-sm flex items-center gap-3 animate-in slide-in-from-top-4">
-           <CheckCircle2 size={20} /> Operation successful.
+           <CheckCircle2 size={20} /> Operation successful. Sync complete.
         </div>
       )}
 
@@ -137,7 +139,7 @@ const SettingsView: React.FC = () => {
                         className="px-6 py-3 bg-blue-600 text-white rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-blue-700 transition-all flex items-center gap-2 shadow-lg shadow-blue-100"
                       >
                         {isSyncingAll ? <Loader2 className="animate-spin" size={16} /> : <RefreshCw size={16} />}
-                        {isSyncingAll ? 'Syncing...' : 'Start Full Sync'}
+                        {isSyncingAll ? 'Processing...' : 'Start Full Sync'}
                       </button>
                     </div>
 
