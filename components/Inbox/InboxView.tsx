@@ -6,7 +6,7 @@ import { Conversation, ConversationStatus, UserRole } from '../../types';
 import ChatWindow from './ChatWindow';
 
 const InboxView: React.FC = () => {
-  const { conversations, currentUser, pages, syncMetaConversations, dbStatus } = useApp();
+  const { conversations, currentUser, pages, syncMetaConversations } = useApp();
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
   const [filter, setFilter] = useState<ConversationStatus | 'ALL'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
@@ -21,9 +21,15 @@ const InboxView: React.FC = () => {
   };
 
   const visibleConversations = conversations.filter(conv => {
+    const page = pages.find(p => p.id === conv.pageId);
     const isAdmin = currentUser?.role === UserRole.SUPER_ADMIN;
-    const isAssigned = isAdmin || (currentUser?.assignedPageIds || []).includes(conv.pageId);
-    if (!isAssigned) return false;
+    
+    // Check if the agent is assigned to this PAGE
+    const isAssignedToPage = (page?.assignedAgentIds || []).includes(currentUser?.id || '');
+    
+    // Admins see everything, agents see their assigned pages
+    if (!isAdmin && !isAssignedToPage) return false;
+    
     const matchesFilter = filter === 'ALL' || conv.status === filter;
     const matchesSearch = conv.customerName.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesFilter && matchesSearch;
@@ -40,7 +46,6 @@ const InboxView: React.FC = () => {
 
   return (
     <div className="flex h-[calc(100vh-140px)] md:h-[calc(100vh-180px)] bg-white overflow-hidden rounded-3xl md:rounded-[40px] border border-slate-100 shadow-2xl shadow-slate-200/40">
-      {/* Sidebar List */}
       <div className={`w-full md:w-80 border-r border-slate-100 flex flex-col bg-slate-50/30 ${activeConvId ? 'hidden md:flex' : 'flex'}`}>
         <div className="p-4 md:p-6 space-y-4">
           <div className="flex items-center justify-between">
@@ -133,13 +138,12 @@ const InboxView: React.FC = () => {
           ) : (
             <div className="flex flex-col items-center justify-center py-20 text-slate-300">
               <MessageSquareOff size={32} className="opacity-20 mb-3" />
-              <p className="text-[10px] font-black uppercase tracking-widest opacity-40 text-center px-4">No active conversations found. Try syncing.</p>
+              <p className="text-[10px] font-black uppercase tracking-widest opacity-40 text-center px-4">No conversations. Pull from Meta to sync.</p>
             </div>
           )}
         </div>
       </div>
 
-      {/* Chat Detail */}
       <div className={`flex-1 bg-white relative ${!activeConvId ? 'hidden md:flex' : 'flex'}`}>
         {activeConv ? (
           <div className="flex flex-col w-full h-full">
