@@ -64,6 +64,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         const linksData = await dbService.getAll<ApprovedLink>('links');
         const mediaData = await dbService.getAll<ApprovedMedia>('media');
 
+        // Initial setup for empty DB
         if (agentsData.length === 0 && MOCK_USERS.length > 0) {
           for (const u of MOCK_USERS) await dbService.put('agents', u);
         }
@@ -86,6 +87,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     initDatabase();
   }, []);
 
+  // Ensure newest chats are always at the top
   const sortedConversations = useMemo(() => {
     return [...conversations].sort((a, b) => 
       new Date(b.lastTimestamp).getTime() - new Date(a.lastTimestamp).getTime()
@@ -112,13 +114,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         const metaConvs = await fetchPageConversations(page.id, page.accessToken);
         for (const conv of metaConvs) {
           await dbService.put('conversations', conv);
-          // Optional: deep fetch messages for each
-          // const metaMsgs = await fetchThreadMessages(conv.id, page.accessToken);
-          // for (const msg of metaMsgs) await dbService.put('messages', msg);
         }
       }
       setConversations(await dbService.getAll<Conversation>('conversations'));
-      setMessages(await dbService.getAll<Message>('messages'));
     } catch (e) {
       console.error("Sync failed", e);
     } finally {
