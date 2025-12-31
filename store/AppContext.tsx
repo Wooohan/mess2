@@ -105,7 +105,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const openChats = relevantConvs.filter(c => c.status === ConversationStatus.OPEN).length;
     const resolvedToday = relevantConvs.filter(c => c.status === ConversationStatus.RESOLVED).length;
 
-    // Real Chart Data Calculation - grouping actual conversations by day
     const last7Days = Array.from({ length: 7 }, (_, i) => {
       const d = new Date();
       d.setDate(d.getDate() - (6 - i));
@@ -232,14 +231,21 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       // 2. Identify and replace optimistic local messages if this is a real Meta message
       const isOfficial = !msg.id.startsWith('msg-');
       if (isOfficial) {
-        // Remove any local temporary message with the same content sent by the agent
         return [
-          ...prev.filter(m => !(
-            m.id.startsWith('msg-') && 
-            m.text === msg.text && 
-            m.senderId === msg.senderId &&
-            m.conversationId === msg.conversationId
-          )),
+          ...prev.filter(m => {
+            // Keep existing official messages
+            if (!m.id.startsWith('msg-')) return true;
+
+            // If it's a local optimistic message, check if it matches the current "official" outgoing one
+            // We ignore senderId here because Local messages use Agent ID, while Official ones use Page ID
+            const isPotentialMatch = m.text === msg.text && m.conversationId === msg.conversationId;
+            
+            // If msg is NOT incoming (meaning it was sent BY THE PAGE/AGENT), it's a match to our local send
+            if (isPotentialMatch && !msg.isIncoming) {
+              return false; // Remove the local temporary version
+            }
+            return true;
+          }),
           msg
         ];
       }
@@ -303,7 +309,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         const agent = updated.find(a => a.id === id);
         if (agent) {
           await dbService.put('agents', agent);
-          // Update currentUser if it's the one modified
           if (currentUser?.id === id) {
             const updatedUser = { ...currentUser, ...u };
             setCurrentUser(updatedUser);
