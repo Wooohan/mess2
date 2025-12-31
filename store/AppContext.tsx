@@ -24,6 +24,7 @@ interface AppContextType {
   updateConversation: (id: string, updates: Partial<Conversation>) => Promise<void>;
   messages: Message[];
   addMessage: (msg: Message) => Promise<void>;
+  bulkAddMessages: (msgs: Message[], silent?: boolean) => Promise<void>;
   agents: User[];
   addAgent: (agent: User) => Promise<void>;
   removeAgent: (id: string) => Promise<void>;
@@ -47,7 +48,6 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 const USER_SESSION_KEY = 'messengerflow_session_v1';
 
-// Helper to fetch image as binary Blob for persistence
 const fetchAsBlob = async (url: string): Promise<Blob | null> => {
   try {
     const response = await fetch(url);
@@ -152,16 +152,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         
         for (const conv of metaConvs) {
           const local = existingMap.get(conv.id);
-          
-          // PERSISTENCE FIX: Check if we have a binary blob locally
+          // Only fetch avatar if not already cached as binary
           if (local && local.customerAvatarBlob) {
             conv.customerAvatarBlob = local.customerAvatarBlob;
           } else if (conv.customerAvatar) {
-            // First time seeing this user or missing blob, fetch and store as binary
             const blob = await fetchAsBlob(conv.customerAvatar);
             if (blob) conv.customerAvatarBlob = blob;
           }
-
           await dbService.put('conversations', conv);
         }
       }
@@ -233,7 +230,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     try {
       const metaConvs = await fetchPageConversations(page.id, page.accessToken);
       for (const conv of metaConvs) {
-        // Initial sync: fetch blob
         if (conv.customerAvatar) {
           const blob = await fetchAsBlob(conv.customerAvatar);
           if (blob) conv.customerAvatarBlob = blob;
@@ -262,43 +258,36 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const updateConversation = async (id: string, updates: Partial<Conversation>) => {
-    setDbStatus('syncing');
     const updated = conversations.map(c => c.id === id ? { ...c, ...updates } : c);
     setConversations(updated);
     const conv = updated.find(c => c.id === id);
     if (conv) await dbService.put('conversations', conv);
-    setDbStatus('connected');
+  };
+
+  const bulkAddMessages = async (msgs: Message[], silent: boolean = false) => {
+    // Only update state if there's actually a new message to avoid unnecessary re-renders
+    setMessages(prev => {
+      const existingIds = new Set(prev.map(m => m.id));
+      const newOnes = msgs.filter(m => !existingIds.has(m.id));
+      
+      if (newOnes.length === 0) return prev;
+      
+      // Batch update the DB for new ones
+      newOnes.forEach(m => dbService.put('messages', m));
+      
+      // Update parent conversation for the latest one
+      const last = newOnes[newOnes.length - 1];
+      updateConversation(last.conversationId, {
+        lastMessage: last.text,
+        lastTimestamp: last.timestamp,
+      });
+
+      return [...prev, ...newOnes];
+    });
   };
 
   const addMessage = async (msg: Message) => {
-    setDbStatus('syncing');
-    setMessages(prev => {
-      if (prev.some(m => m.id === msg.id)) return prev;
-
-      const isOfficial = !msg.id.startsWith('msg-');
-      if (isOfficial) {
-        return [
-          ...prev.filter(m => {
-            if (!m.id.startsWith('msg-')) return true;
-            const isPotentialMatch = m.text === msg.text && m.conversationId === msg.conversationId;
-            if (isPotentialMatch && !msg.isIncoming) {
-              return false; 
-            }
-            return true;
-          }),
-          msg
-        ];
-      }
-
-      return [...prev, msg];
-    });
-
-    await dbService.put('messages', msg);
-    await updateConversation(msg.conversationId, {
-      lastMessage: msg.text,
-      lastTimestamp: msg.timestamp,
-    });
-    setDbStatus('connected');
+    await bulkAddMessages([msg]);
   };
 
   const login = async (email: string, password: string): Promise<boolean> => {
@@ -340,7 +329,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       currentUser, setCurrentUser,
       pages, addPage, removePage, updatePage,
       conversations: sortedConversations, updateConversation,
-      messages, addMessage,
+      messages, addMessage, bulkAddMessages,
       agents, addAgent: async (a) => { setAgents(p => [...p, a]); await dbService.put('agents', a); },
       removeAgent,
       updateUser: async (id, u) => { 
