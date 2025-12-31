@@ -32,7 +32,6 @@ const PageSettings: React.FC = () => {
   const isSecure = isSecureOrigin();
   const isConfigured = isAppIdConfigured();
 
-  // Specifically detect the JSSDK error to show a better guide
   const isJSSDKError = error?.toLowerCase().includes('jssdk') || 
                        error?.toLowerCase().includes('javascript sdk') || 
                        error?.toLowerCase().includes('disabled');
@@ -51,9 +50,11 @@ const PageSettings: React.FC = () => {
       const userPages = await fetchUserPages();
       
       if (userPages.length === 0) {
-        setError("Login successful, but no managed pages found. Ensure you are an Admin of the pages.");
+        setError("Login successful, but no managed pages found. Ensure you are an Admin of the pages and they are linked to the app.");
       } else {
-        userPages.forEach(p => addPage(p));
+        for (const p of userPages) {
+          await addPage(p);
+        }
       }
     } catch (err: any) {
       console.error("FB Login Error Details:", err);
@@ -75,10 +76,9 @@ const PageSettings: React.FC = () => {
 
   return (
     <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in duration-500 pb-20">
-      {/* Header Diagnostic Strip */}
       <div className="flex flex-wrap items-center gap-3 p-3 bg-slate-900 rounded-2xl border border-slate-800 shadow-2xl overflow-hidden relative">
          <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-500/10 text-blue-400 rounded-lg text-[10px] font-black uppercase tracking-widest border border-blue-500/20">
-            <Facebook size={12} /> App ID: 1938499797069544
+            <Facebook size={12} /> App ID: 1148755260666274
          </div>
          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest border ${
            isSecure ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20'
@@ -111,7 +111,6 @@ const PageSettings: React.FC = () => {
         </div>
       </div>
 
-      {/* ERROR WIZARD */}
       {error && (
         <div className={`p-8 md:p-12 rounded-[48px] border-4 shadow-2xl animate-in slide-in-from-top-4 duration-500 ${isJSSDKError ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200'}`}>
           <div className="flex flex-col md:flex-row gap-8">
@@ -136,7 +135,7 @@ const PageSettings: React.FC = () => {
                       <p className="text-amber-900 font-bold">Open your Meta App Dashboard</p>
                    </div>
                    <a 
-                    href="https://developers.facebook.com/apps/1938499797069544/fb-login/settings/" 
+                    href="https://developers.facebook.com/apps/1148755260666274/fb-login/settings/" 
                     target="_blank" 
                     className="inline-flex items-center gap-3 px-8 py-4 bg-amber-600 text-white rounded-2xl font-bold hover:bg-amber-700 transition-all shadow-lg"
                    >
@@ -167,7 +166,6 @@ const PageSettings: React.FC = () => {
         </div>
       )}
 
-      {/* Page Cards Container */}
       {!pages.length && !error && (
         <div className="bg-white p-20 rounded-[64px] border border-slate-100 shadow-sm text-center space-y-6">
            <div className="w-24 h-24 bg-blue-50 text-blue-600 rounded-[40px] flex items-center justify-center mx-auto mb-4 animate-bounce">
@@ -245,7 +243,7 @@ const PageSettings: React.FC = () => {
                  <h3 className="text-3xl font-black text-slate-800 tracking-tight">Agent Permissions</h3>
                  <button onClick={() => setAssigningPage(null)} className="p-3 text-slate-400 hover:bg-slate-50 rounded-full transition-colors"><X size={32} /></button>
               </div>
-              <p className="text-slate-500 mb-10 text-lg">Who is authorized to chat for <span className="font-bold text-slate-900 underline decoration-blue-500">{assigningPage.name}</span>?</p>
+              <p className="text-slate-500 mb-10 text-lg">Who is authorized to chat for <span className="font-bold text-slate-900 underline decoration-blue-50">{assigningPage.name}</span>?</p>
 
               <div className="space-y-4 max-h-[400px] overflow-y-auto pr-4 custom-scrollbar">
                 {agents.map(agent => (
