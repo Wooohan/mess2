@@ -1,16 +1,17 @@
 
-import React, { useState, useEffect, useRef } from 'react';
-import { Send, X, Link as LinkIcon, Image as ImageIcon, Library, AlertCircle, ChevronDown, Check, MessageSquare, Loader2 } from 'lucide-react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { Send, X, Link as LinkIcon, Image as ImageIcon, Library, AlertCircle, ChevronDown, Check, MessageSquare, Loader2, Trash2 } from 'lucide-react';
 import { Conversation, Message, ApprovedLink, ApprovedMedia, UserRole, ConversationStatus } from '../../types';
 import { useApp } from '../../store/AppContext';
 import { sendPageMessage, fetchThreadMessages } from '../../services/facebookService';
 
 interface ChatWindowProps {
   conversation: Conversation;
+  onDelete?: () => void;
 }
 
-const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
-  const { currentUser, messages, addMessage, pages, approvedLinks, approvedMedia, updateConversation } = useApp();
+const ChatWindow: React.FC<ChatWindowProps> = ({ conversation, onDelete }) => {
+  const { currentUser, messages, addMessage, pages, approvedLinks, approvedMedia, updateConversation, deleteConversation } = useApp();
   const [inputText, setInputText] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
@@ -19,9 +20,9 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
   const [showStatusMenu, setShowStatusMenu] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const chatMessages = messages.filter(m => m.conversationId === conversation.id);
+  const isAdmin = currentUser?.role === UserRole.SUPER_ADMIN;
+  const chatMessages = useMemo(() => messages.filter(m => m.conversationId === conversation.id), [messages, conversation.id]);
 
-  // Deep Sync: Fetch real messages from Meta whenever the conversation changes
   useEffect(() => {
     const syncThread = async () => {
       const page = pages.find(p => p.id === conversation.pageId);
@@ -29,9 +30,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
 
       setIsLoadingMessages(true);
       try {
-        const metaMsgs = await fetchThreadMessages(conversation.id, page.accessToken);
-        // We rely on addMessage/db logic if we wanted persistence, but for immediate UI
-        // we'll just ensure they exist in the context. In a real app, you'd merge them.
+        const metaMsgs = await fetchThreadMessages(conversation.id, page.id, page.accessToken);
         for (const msg of metaMsgs) {
           if (!messages.find(m => m.id === msg.id)) {
             await addMessage(msg);
@@ -45,14 +44,16 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
     };
 
     syncThread();
-  }, [conversation.id]);
+  }, [conversation.id, pages]);
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
   }, [chatMessages]);
 
   const blockRestrictedLinks = (text: string): boolean => {
-    if (currentUser?.role === UserRole.SUPER_ADMIN) return true;
+    if (isAdmin) return true;
     const urlPattern = /(https?:\/\/[^\s]+)/g;
     const foundUrls = text.match(urlPattern);
     if (!foundUrls) return true;
@@ -76,28 +77,34 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
     setLastError(null);
     const currentPage = pages.find(p => p.id === conversation.pageId);
     
-    const newMessage: Message = {
-      id: `msg-${Date.now()}`,
-      conversationId: conversation.id,
-      senderId: currentUser?.id || 'unknown',
-      senderName: currentUser?.name || 'Agent',
-      text: textToSubmit,
-      timestamp: new Date().toISOString(),
-      isIncoming: false,
-      isRead: true,
-    };
-
     try {
       if (currentPage && currentPage.accessToken) {
-        await sendPageMessage(conversation.customerId, textToSubmit, currentPage.accessToken);
+        const response = await sendPageMessage(conversation.customerId, textToSubmit, currentPage.accessToken);
+        const newMessage: Message = {
+          id: response.message_id || `msg-${Date.now()}`,
+          conversationId: conversation.id,
+          senderId: currentPage.id,
+          senderName: currentPage.name,
+          text: textToSubmit,
+          timestamp: new Date().toISOString(),
+          isIncoming: false,
+          isRead: true,
+        };
+        await addMessage(newMessage);
       }
-      await addMessage(newMessage);
       if (!forcedText) setInputText('');
       setShowLibrary(false);
     } catch (err: any) {
       setLastError(err.message || 'Meta API Error');
     } finally {
       setIsSending(false);
+    }
+  };
+
+  const handleDeleteChat = async () => {
+    if (isAdmin && window.confirm("Permanently delete local chat history?")) {
+      await deleteConversation(conversation.id);
+      if (onDelete) onDelete();
     }
   };
 
@@ -166,6 +173,16 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
             </div>
           </div>
         </div>
+        
+        {isAdmin && (
+          <button 
+            onClick={handleDeleteChat}
+            className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
+            title="Purge Local Chat"
+          >
+            <Trash2 size={18} />
+          </button>
+        )}
       </div>
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 md:p-8 space-y-4 md:space-y-6 bg-slate-50/20">
@@ -207,7 +224,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
         )}
 
         {showLibrary && (
-          <div className="absolute bottom-full left-4 right-4 md:left-8 md:right-8 mb-4 bg-white border border-slate-100 shadow-2xl rounded-[32px] overflow-hidden z-50 animate-in slide-in-from-bottom-4 duration-200">
+          <div className="absolute bottom-full right-4 md:right-8 mb-4 bg-white border border-slate-100 shadow-2xl rounded-[32px] overflow-hidden z-50 animate-in slide-in-from-bottom-4 duration-200 w-[calc(100%-32px)] md:w-1/2 max-w-[500px]">
              <div className="p-4 bg-slate-50/50 border-b flex justify-between items-center">
                 <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Compliance Verified Assets</span>
                 <button onClick={() => setShowLibrary(false)} className="p-1.5 hover:bg-white rounded-lg"><X size={16} /></button>
