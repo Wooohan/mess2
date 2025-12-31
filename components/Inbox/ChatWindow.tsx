@@ -1,9 +1,9 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Sparkles, X, Link as LinkIcon, Image as ImageIcon, Library, AlertCircle, ChevronDown, Check } from 'lucide-react';
+import { Send, X, Link as LinkIcon, Image as ImageIcon, Library, AlertCircle, ChevronDown, Check, MessageSquare, Loader2 } from 'lucide-react';
 import { Conversation, Message, ApprovedLink, ApprovedMedia, UserRole, ConversationStatus } from '../../types';
 import { useApp } from '../../store/AppContext';
-import { sendPageMessage } from '../../services/facebookService';
+import { sendPageMessage, fetchThreadMessages } from '../../services/facebookService';
 
 interface ChatWindowProps {
   conversation: Conversation;
@@ -13,12 +13,39 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
   const { currentUser, messages, addMessage, pages, approvedLinks, approvedMedia, updateConversation } = useApp();
   const [inputText, setInputText] = useState('');
   const [isSending, setIsSending] = useState(false);
+  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
   const [showLibrary, setShowLibrary] = useState(false);
   const [showStatusMenu, setShowStatusMenu] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const chatMessages = messages.filter(m => m.conversationId === conversation.id);
+
+  // Deep Sync: Fetch real messages from Meta whenever the conversation changes
+  useEffect(() => {
+    const syncThread = async () => {
+      const page = pages.find(p => p.id === conversation.pageId);
+      if (!page?.accessToken) return;
+
+      setIsLoadingMessages(true);
+      try {
+        const metaMsgs = await fetchThreadMessages(conversation.id, page.accessToken);
+        // We rely on addMessage/db logic if we wanted persistence, but for immediate UI
+        // we'll just ensure they exist in the context. In a real app, you'd merge them.
+        for (const msg of metaMsgs) {
+          if (!messages.find(m => m.id === msg.id)) {
+            await addMessage(msg);
+          }
+        }
+      } catch (err) {
+        console.error("Thread sync failed", err);
+      } finally {
+        setIsLoadingMessages(false);
+      }
+    };
+
+    syncThread();
+  }, [conversation.id]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
@@ -61,10 +88,10 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
     };
 
     try {
-      if (currentPage && currentPage.accessToken && !currentPage.accessToken.startsWith('EAAb')) {
+      if (currentPage && currentPage.accessToken) {
         await sendPageMessage(conversation.customerId, textToSubmit, currentPage.accessToken);
       }
-      addMessage(newMessage);
+      await addMessage(newMessage);
       if (!forcedText) setInputText('');
       setShowLibrary(false);
     } catch (err: any) {
@@ -90,7 +117,6 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
 
   return (
     <div className="flex flex-col h-full bg-white relative">
-      {/* Chat Header */}
       <div className="px-4 md:px-8 py-4 md:py-5 border-b border-slate-100 flex items-center justify-between bg-white/80 backdrop-blur-xl sticky top-0 z-30">
         <div className="flex items-center gap-3 md:gap-4 ml-10 md:ml-0">
           <div className="relative flex-shrink-0">
@@ -98,7 +124,10 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
             <div className="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-green-500 border-2 border-white rounded-full"></div>
           </div>
           <div className="min-w-0">
-            <h3 className="font-bold text-slate-800 text-sm md:text-base truncate">{conversation.customerName}</h3>
+            <div className="flex items-center gap-2">
+              <h3 className="font-bold text-slate-800 text-sm md:text-base truncate">{conversation.customerName}</h3>
+              {isLoadingMessages && <Loader2 size={12} className="animate-spin text-blue-400" />}
+            </div>
             
             <div className="relative inline-block">
               <button 
@@ -139,12 +168,19 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
         </div>
       </div>
 
-      {/* Messages Area */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 md:p-8 space-y-4 md:space-y-6 bg-slate-50/20">
-        {chatMessages.length === 0 && (
+        {chatMessages.length === 0 && !isLoadingMessages && (
           <div className="flex flex-col items-center justify-center py-20 text-slate-300 text-center">
-            <Sparkles size={32} className="opacity-20 mb-3" />
-            <p className="text-[10px] font-bold uppercase tracking-widest opacity-40">Conversation Started</p>
+            <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center shadow-sm border border-slate-100 mb-4">
+              <MessageSquare size={24} className="opacity-20" />
+            </div>
+            <p className="text-[10px] font-bold uppercase tracking-widest opacity-40">Direct Conversation Active</p>
+          </div>
+        )}
+        {isLoadingMessages && chatMessages.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-20 text-blue-400/50">
+            <Loader2 size={32} className="animate-spin mb-4" />
+            <p className="text-[10px] font-black uppercase tracking-widest">Pulling History from Meta...</p>
           </div>
         )}
         {chatMessages.map((msg) => (
@@ -163,7 +199,6 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
         ))}
       </div>
 
-      {/* Input Area */}
       <div className="p-4 md:p-8 border-t border-slate-100 bg-white relative">
         {lastError && (
           <div className="mb-4 p-3 bg-red-50 text-red-600 text-[10px] font-bold rounded-xl flex items-center gap-2 animate-in shake border border-red-100">
@@ -174,7 +209,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
         {showLibrary && (
           <div className="absolute bottom-full left-4 right-4 md:left-8 md:right-8 mb-4 bg-white border border-slate-100 shadow-2xl rounded-[32px] overflow-hidden z-50 animate-in slide-in-from-bottom-4 duration-200">
              <div className="p-4 bg-slate-50/50 border-b flex justify-between items-center">
-                <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Approved Assets</span>
+                <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Compliance Verified Assets</span>
                 <button onClick={() => setShowLibrary(false)} className="p-1.5 hover:bg-white rounded-lg"><X size={16} /></button>
              </div>
              <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-64 overflow-y-auto">
@@ -193,7 +228,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
                   <button onClick={() => handleSend(media.url)} key={media.id} className="relative aspect-[2/1] rounded-2xl overflow-hidden border border-slate-100 group">
                      <img src={media.url} className="w-full h-full object-cover" />
                      <div className="absolute inset-0 bg-slate-900/40 flex flex-col items-center justify-center opacity-0 hover:opacity-100 transition-opacity p-2">
-                        <span className="text-white font-black text-[9px] uppercase">Send PNG</span>
+                        <span className="text-white font-black text-[9px] uppercase">Send Media</span>
                      </div>
                   </button>
                 ))}
@@ -205,6 +240,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
            <button 
              onClick={() => setShowLibrary(!showLibrary)}
              className={`p-3.5 md:p-4 rounded-xl md:rounded-2xl transition-all ${showLibrary ? 'bg-blue-600 text-white' : 'bg-slate-50 text-slate-400 hover:bg-blue-50'}`}
+             title="Verified Assets"
            >
              <Library size={20} />
            </button>
@@ -213,7 +249,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
                value={inputText}
                onChange={e => setInputText(e.target.value)}
                className="w-full bg-slate-50 border border-slate-100 rounded-2xl md:rounded-3xl p-3 md:p-4 text-sm outline-none focus:ring-4 focus:ring-blue-50 focus:border-blue-200 transition-all resize-none max-h-32"
-               placeholder="Reply..."
+               placeholder="Write a message..."
                rows={1}
                onKeyDown={(e) => {
                  if (e.key === 'Enter' && !e.shiftKey && window.innerWidth > 768) {
@@ -235,11 +271,5 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
     </div>
   );
 };
-
-const Loader2 = ({ size, className }: { size: number, className: string }) => (
-  <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-  </svg>
-);
 
 export default ChatWindow;
