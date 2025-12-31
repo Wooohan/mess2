@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, X, Link as LinkIcon, Image as ImageIcon, Library, AlertCircle, ChevronDown, Check, MessageSquare, Loader2 } from 'lucide-react';
+import { Send, X, Link as LinkIcon, Image as ImageIcon, Library, AlertCircle, ChevronDown, Check, MessageSquare, Loader2, ShieldAlert } from 'lucide-react';
 import { Conversation, Message, ApprovedLink, ApprovedMedia, UserRole, ConversationStatus } from '../../types';
 import { useApp } from '../../store/AppContext';
 import { sendPageMessage, fetchThreadMessages } from '../../services/facebookService';
@@ -17,11 +17,11 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
   const [lastError, setLastError] = useState<string | null>(null);
   const [showLibrary, setShowLibrary] = useState(false);
   const [showStatusMenu, setShowStatusMenu] = useState(false);
+  const [showSecurityPopup, setShowSecurityPopup] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const chatMessages = messages.filter(m => m.conversationId === conversation.id);
 
-  // Deep Sync: Fetch real messages from Meta whenever the conversation changes
   useEffect(() => {
     const syncThread = async () => {
       const page = pages.find(p => p.id === conversation.pageId);
@@ -30,8 +30,6 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
       setIsLoadingMessages(true);
       try {
         const metaMsgs = await fetchThreadMessages(conversation.id, page.accessToken);
-        // We rely on addMessage/db logic if we wanted persistence, but for immediate UI
-        // we'll just ensure they exist in the context. In a real app, you'd merge them.
         for (const msg of metaMsgs) {
           if (!messages.find(m => m.id === msg.id)) {
             await addMessage(msg);
@@ -52,15 +50,16 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
   }, [chatMessages]);
 
   const blockRestrictedLinks = (text: string): boolean => {
-    if (currentUser?.role === UserRole.SUPER_ADMIN) return true;
     const urlPattern = /(https?:\/\/[^\s]+)/g;
     const foundUrls = text.match(urlPattern);
     if (!foundUrls) return true;
+
     const libraryUrls = [
-      ...approvedLinks.map(l => l.url.toLowerCase()),
-      ...approvedMedia.map(m => m.url.toLowerCase())
+      ...approvedLinks.map(l => l.url.trim().toLowerCase()),
+      ...approvedMedia.map(m => m.url.trim().toLowerCase())
     ];
-    return foundUrls.every(url => libraryUrls.includes(url.toLowerCase()));
+
+    return foundUrls.every(url => libraryUrls.includes(url.trim().toLowerCase()));
   };
 
   const handleSend = async (forcedText?: string) => {
@@ -68,7 +67,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
     if (!textToSubmit || isSending) return;
     
     if (!blockRestrictedLinks(textToSubmit)) {
-      setLastError('Security: Only pre-approved assets allowed.');
+      setShowSecurityPopup(true);
       return;
     }
 
@@ -120,7 +119,13 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
       <div className="px-4 md:px-8 py-4 md:py-5 border-b border-slate-100 flex items-center justify-between bg-white/80 backdrop-blur-xl sticky top-0 z-30">
         <div className="flex items-center gap-3 md:gap-4 ml-10 md:ml-0">
           <div className="relative flex-shrink-0">
-            <img src={conversation.customerAvatar} className="w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl object-cover shadow-sm" />
+            <img 
+              src={conversation.customerAvatar} 
+              className="w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl object-cover shadow-sm bg-slate-100" 
+              onError={(e) => {
+                (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(conversation.customerName)}&background=random&size=128`;
+              }}
+            />
             <div className="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-green-500 border-2 border-white rounded-full"></div>
           </div>
           <div className="min-w-0">
@@ -201,8 +206,8 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
 
       <div className="p-4 md:p-8 border-t border-slate-100 bg-white relative">
         {lastError && (
-          <div className="mb-4 p-3 bg-red-50 text-red-600 text-[10px] font-bold rounded-xl flex items-center gap-2 animate-in shake border border-red-100">
-            <AlertCircle size={14} /> {lastError}
+          <div className="mb-4 p-4 bg-red-600 text-white text-xs font-black rounded-2xl flex items-center gap-3 animate-shake shadow-xl shadow-red-200 border border-red-700">
+            <AlertCircle size={20} className="flex-shrink-0" /> {lastError}
           </div>
         )}
 
@@ -268,6 +273,27 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
            </button>
         </div>
       </div>
+
+      {/* Security Block Popup */}
+      {showSecurityPopup && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-xl z-[200] flex items-center justify-center p-6 animate-in fade-in">
+           <div className="bg-white rounded-[48px] shadow-2xl w-full max-w-sm p-10 text-center animate-in zoom-in-95 border-b-8 border-red-500">
+              <div className="w-20 h-20 bg-red-100 text-red-600 rounded-[32px] flex items-center justify-center mx-auto mb-6 shadow-xl shadow-red-100">
+                 <ShieldAlert size={40} />
+              </div>
+              <h3 className="text-2xl font-black text-slate-800 tracking-tight uppercase mb-4">Security Violation</h3>
+              <p className="text-slate-500 text-sm leading-relaxed mb-8">
+                 You are attempting to send a <span className="text-red-600 font-black">Restricted URL</span>. Agents are strictly prohibited from sending external links not present in the verified library.
+              </p>
+              <button 
+                onClick={() => setShowSecurityPopup(false)}
+                className="w-full py-5 bg-slate-900 text-white rounded-3xl font-black uppercase tracking-widest hover:bg-red-600 transition-all shadow-xl active:scale-95"
+              >
+                I Understand
+              </button>
+           </div>
+        </div>
+      )}
     </div>
   );
 };
