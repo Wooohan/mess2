@@ -10,6 +10,7 @@ interface DashboardStats {
   avgResponseTime: string;
   resolvedToday: number;
   csat: string;
+  chartData: { name: string; conversations: number }[];
 }
 
 interface AppContextType {
@@ -25,6 +26,7 @@ interface AppContextType {
   addMessage: (msg: Message) => Promise<void>;
   agents: User[];
   addAgent: (agent: User) => Promise<void>;
+  removeAgent: (id: string) => Promise<void>;
   updateUser: (id: string, updates: Partial<User>) => Promise<void>;
   login: (email: string, password: string) => Promise<boolean>;
   logout: () => Promise<void>;
@@ -65,7 +67,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         const linksData = await dbService.getAll<ApprovedLink>('links');
         const mediaData = await dbService.getAll<ApprovedMedia>('media');
 
-        // Initial setup for empty DB
         if (agentsData.length === 0 && MOCK_USERS.length > 0) {
           for (const u of MOCK_USERS) await dbService.put('agents', u);
         }
@@ -88,7 +89,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     initDatabase();
   }, []);
 
-  // Ensure newest chats are always at the top
   const sortedConversations = useMemo(() => {
     return [...conversations].sort((a, b) => 
       new Date(b.lastTimestamp).getTime() - new Date(a.lastTimestamp).getTime()
@@ -101,10 +101,37 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const page = pages.find(p => p.id === c.pageId);
       return isAdmin || (page?.assignedAgentIds || []).includes(currentUser?.id || '');
     });
+    
     const openChats = relevantConvs.filter(c => c.status === ConversationStatus.OPEN).length;
     const resolvedToday = relevantConvs.filter(c => c.status === ConversationStatus.RESOLVED).length;
-    return { openChats, avgResponseTime: "0m 30s", resolvedToday, csat: "98%" };
+
+    // Real Chart Data Calculation
+    const last7Days = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date();
+      d.setDate(d.getDate() - (6 - i));
+      return d.toISOString().split('T')[0];
+    });
+
+    const chartData = last7Days.map(dateStr => {
+      const dayName = new Date(dateStr).toLocaleDateString('en-US', { weekday: 'short' });
+      const count = relevantConvs.filter(c => c.lastTimestamp.startsWith(dateStr)).length;
+      return { name: dayName, conversations: count };
+    });
+
+    return { 
+      openChats, 
+      avgResponseTime: "0m 30s", 
+      resolvedToday, 
+      csat: "98%",
+      chartData
+    };
   }, [sortedConversations, currentUser, pages]);
+
+  const removeAgent = async (id: string) => {
+    if (id === currentUser?.id) return; // Prevent self-delete
+    await dbService.delete('agents', id);
+    setAgents(prev => prev.filter(a => a.id !== id));
+  };
 
   const syncMetaConversations = async () => {
     if (pages.length === 0) return;
@@ -247,6 +274,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       conversations: sortedConversations, updateConversation,
       messages, addMessage,
       agents, addAgent: async (a) => { setAgents(p => [...p, a]); await dbService.put('agents', a); },
+      removeAgent,
       updateUser: async (id, u) => { 
         const updated = agents.map(a => a.id === id ? { ...a, ...u } : a);
         setAgents(updated);
