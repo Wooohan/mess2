@@ -1,8 +1,8 @@
 
-import { FacebookPage } from '../types';
+import { FacebookPage, Conversation, Message, ConversationStatus } from '../types';
 
 /**
- * Meta App ID provided by user: 1938499797069544
+ * Meta App ID: 1938499797069544
  */
 const FB_APP_ID: string = '1148755260666274'; 
 
@@ -13,7 +13,6 @@ export const isAppIdConfigured = () => {
 };
 
 export const isSecureOrigin = () => {
-  // Meta strictly requires HTTPS for JSSDK Login unless on localhost
   return window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 };
 
@@ -21,7 +20,6 @@ export const initFacebookSDK = (): Promise<void> => {
   if (sdkPromise) return sdkPromise;
 
   sdkPromise = new Promise<void>((resolve) => {
-    // Check if SDK already loaded and initialized
     if ((window as any).FB && (window as any).FB._initialized) {
       resolve();
       return;
@@ -31,21 +29,19 @@ export const initFacebookSDK = (): Promise<void> => {
       try {
         (window as any).FB.init({
           appId            : isAppIdConfigured() ? FB_APP_ID : '123456789',
-          cookie           : true,   // Enable cookies to allow the server to access the session
-          xfbml            : true,   // Parse social plugins on this webpage
-          version          : 'v22.0', // Use the latest Graph API version
-          status           : true    // Check login status on every page load
+          cookie           : true,
+          xfbml            : true,
+          version          : 'v22.0',
+          status           : true 
         });
         (window as any).FB._initialized = true;
-        console.log("Facebook SDK Initialized Successfully");
         resolve();
       } catch (e) {
-        console.error("FB.init failed:", e);
-        resolve(); // Resolve anyway to prevent hanging, but log error
+        console.error("FB Init Error:", e);
+        resolve();
       }
     };
 
-    // Inject SDK Script
     if (!document.getElementById('facebook-jssdk')) {
       const fjs = document.getElementsByTagName('script')[0];
       const js = document.createElement('script') as HTMLScriptElement;
@@ -64,24 +60,13 @@ export const loginWithFacebook = async () => {
   await initFacebookSDK();
 
   return new Promise<any>((resolve, reject) => {
-    if (!isAppIdConfigured()) {
-      return reject('App ID is not configured. Please check services/facebookService.ts');
-    }
-    
-    if (!isSecureOrigin()) {
-      return reject('Meta requires HTTPS. Please ensure you are running on a secure domain.');
-    }
-
     (window as any).FB.login((response: any) => {
       if (response.authResponse) {
         resolve(response.authResponse);
       } else {
-        // Handle cases where the JSSDK login is disabled in the dashboard
-        const errorMsg = response?.error_message || 'Authorization failed. Check if "Login with JavaScript SDK" is enabled in your Meta App Dashboard.';
-        reject(errorMsg);
+        reject(response?.error_message || 'Login Failed');
       }
     }, { 
-      // Permissions required for Page Messaging
       scope: 'pages_messaging,pages_show_list,pages_manage_metadata,public_profile,pages_read_engagement' 
     });
   });
@@ -89,10 +74,7 @@ export const loginWithFacebook = async () => {
 
 export const fetchUserPages = async (): Promise<FacebookPage[]> => {
   await initFacebookSDK();
-  
   return new Promise((resolve, reject) => {
-    if (!(window as any).FB) return reject('Facebook SDK missing');
-
     (window as any).FB.api('/me/accounts', (response: any) => {
       if (response && !response.error) {
         const pages: FacebookPage[] = response.data.map((p: any) => ({
@@ -105,15 +87,63 @@ export const fetchUserPages = async (): Promise<FacebookPage[]> => {
         }));
         resolve(pages);
       } else {
-        reject(response?.error?.message || 'Failed to fetch authorized pages.');
+        reject(response?.error?.message || 'Failed to fetch pages.');
       }
     });
   });
 };
 
+/**
+ * Fetches real conversations for a specific page
+ */
+export const fetchPageConversations = async (pageId: string, pageAccessToken: string): Promise<Conversation[]> => {
+  const url = `https://graph.facebook.com/v22.0/${pageId}/conversations?fields=id,snippet,updated_time,participants,unread_count&access_token=${pageAccessToken}`;
+  const response = await fetch(url);
+  const data = await response.json();
+  
+  if (data.error) throw new Error(data.error.message);
+
+  return (data.data || []).map((conv: any) => {
+    const customer = conv.participants?.data?.find((p: any) => p.id !== pageId) || { name: 'Unknown User', id: 'unknown' };
+    return {
+      id: conv.id,
+      pageId: pageId,
+      customerId: customer.id,
+      customerName: customer.name,
+      customerAvatar: `https://graph.facebook.com/v22.0/${customer.id}/picture?type=normal&access_token=${pageAccessToken}`,
+      lastMessage: conv.snippet || 'No message content',
+      lastTimestamp: conv.updated_time,
+      status: ConversationStatus.OPEN,
+      assignedAgentId: null,
+      unreadCount: conv.unread_count || 0
+    };
+  });
+};
+
+/**
+ * Fetches messages for a specific conversation thread
+ */
+export const fetchThreadMessages = async (conversationId: string, pageAccessToken: string): Promise<Message[]> => {
+  const url = `https://graph.facebook.com/v22.0/${conversationId}/messages?fields=id,message,created_time,from&access_token=${pageAccessToken}`;
+  const response = await fetch(url);
+  const data = await response.json();
+
+  if (data.error) throw new Error(data.error.message);
+
+  return (data.data || []).map((msg: any) => ({
+    id: msg.id,
+    conversationId: conversationId,
+    senderId: msg.from.id,
+    senderName: msg.from.name,
+    text: msg.message,
+    timestamp: msg.created_time,
+    isIncoming: msg.from.id !== conversationId.split('_')[0], // Simplified check
+    isRead: true
+  })).reverse(); // Oldest first for chat UI
+};
+
 export const sendPageMessage = async (recipientId: string, text: string, pageAccessToken: string) => {
   const url = `https://graph.facebook.com/v22.0/me/messages?access_token=${pageAccessToken}`;
-  
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -123,7 +153,6 @@ export const sendPageMessage = async (recipientId: string, text: string, pageAcc
       messaging_type: "RESPONSE"
     })
   });
-
   const data = await response.json();
   if (data.error) throw new Error(data.error.message);
   return data;
