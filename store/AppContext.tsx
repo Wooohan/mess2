@@ -41,6 +41,7 @@ interface AppContextType {
   removeApprovedMedia: (id: string) => Promise<void>;
   dashboardStats: DashboardStats;
   dbStatus: 'connected' | 'syncing' | 'error' | 'initializing';
+  clearLocalChats: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -152,6 +153,20 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
+  const clearLocalChats = async () => {
+    setDbStatus('syncing');
+    try {
+      await dbService.clearStore('conversations');
+      await dbService.clearStore('messages');
+      setConversations([]);
+      setMessages([]);
+    } catch (e) {
+      console.error("Clear failed", e);
+    } finally {
+      setDbStatus('connected');
+    }
+  };
+
   const verifyPageConnection = async (pageId: string): Promise<boolean> => {
     const page = pages.find(p => p.id === pageId);
     if (!page || !page.accessToken) return false;
@@ -225,24 +240,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const addMessage = async (msg: Message) => {
     setDbStatus('syncing');
     setMessages(prev => {
-      // 1. Prevent exact duplicate by ID
       if (prev.some(m => m.id === msg.id)) return prev;
 
-      // 2. Identify and replace optimistic local messages if this is a real Meta message
       const isOfficial = !msg.id.startsWith('msg-');
       if (isOfficial) {
         return [
           ...prev.filter(m => {
-            // Keep existing official messages
             if (!m.id.startsWith('msg-')) return true;
-
-            // If it's a local optimistic message, check if it matches the current "official" outgoing one
-            // We ignore senderId here because Local messages use Agent ID, while Official ones use Page ID
             const isPotentialMatch = m.text === msg.text && m.conversationId === msg.conversationId;
-            
-            // If msg is NOT incoming (meaning it was sent BY THE PAGE/AGENT), it's a match to our local send
             if (isPotentialMatch && !msg.isIncoming) {
-              return false; // Remove the local temporary version
+              return false; 
             }
             return true;
           }),
@@ -320,7 +327,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       simulateIncomingWebhook,
       approvedLinks, addApprovedLink, removeApprovedLink,
       approvedMedia, addApprovedMedia, removeApprovedMedia,
-      dashboardStats, dbStatus
+      dashboardStats, dbStatus, clearLocalChats
     }}>
       {children}
     </AppContext.Provider>
