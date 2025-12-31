@@ -63,6 +63,7 @@ export interface Conversation {
   customerId: string;
   customerName: string;
   customerAvatar: string;
+  customerAvatarBlob?: Blob; // Added for binary persistence
   lastMessage: string;
   lastTimestamp: string;
   status: ConversationStatus;
