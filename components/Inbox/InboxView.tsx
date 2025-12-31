@@ -1,9 +1,34 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Search, MessageSquareOff, Facebook, ChevronLeft, RefreshCw, Loader2 } from 'lucide-react';
 import { useApp } from '../../store/AppContext';
 import { Conversation, ConversationStatus, UserRole } from '../../types';
 import ChatWindow from './ChatWindow';
+
+// Optimized component to render persistent avatars from Blobs
+const CachedAvatar: React.FC<{ conversation: Conversation, className?: string }> = ({ conversation, className }) => {
+  const [url, setUrl] = useState<string>(conversation.customerAvatar);
+
+  useEffect(() => {
+    if (conversation.customerAvatarBlob) {
+      const objectUrl = URL.createObjectURL(conversation.customerAvatarBlob);
+      setUrl(objectUrl);
+      return () => URL.revokeObjectURL(objectUrl);
+    }
+    setUrl(conversation.customerAvatar);
+  }, [conversation.customerAvatarBlob, conversation.customerAvatar]);
+
+  return (
+    <img 
+      src={url} 
+      className={className} 
+      alt="" 
+      onError={(e) => {
+        (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(conversation.customerName)}&background=random`;
+      }}
+    />
+  );
+};
 
 const InboxView: React.FC = () => {
   const { conversations, currentUser, pages, syncMetaConversations } = useApp();
@@ -106,7 +131,7 @@ const InboxView: React.FC = () => {
                 >
                   <div className="flex gap-3">
                     <div className="relative flex-shrink-0">
-                      <img src={conv.customerAvatar} className="w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl shadow-sm object-cover" alt="" />
+                      <CachedAvatar conversation={conv} className="w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl shadow-sm object-cover" />
                       <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-white rounded-full flex items-center justify-center shadow-sm">
                         <Facebook size={10} className="text-blue-600" />
                       </div>
