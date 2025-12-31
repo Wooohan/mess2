@@ -104,9 +104,6 @@ export const verifyPageAccessToken = async (pageId: string, accessToken: string)
   }
 };
 
-/**
- * Enhanced fetch with limit support. Default limit increased to 100 for historical sync.
- */
 export const fetchPageConversations = async (pageId: string, pageAccessToken: string, limit: number = 100): Promise<Conversation[]> => {
   const url = `https://graph.facebook.com/v22.0/${pageId}/conversations?fields=id,snippet,updated_time,participants{id,name,picture.type(large)},unread_count&limit=${limit}&access_token=${pageAccessToken}`;
   const response = await fetch(url);
@@ -134,9 +131,6 @@ export const fetchPageConversations = async (pageId: string, pageAccessToken: st
   });
 };
 
-/**
- * Thread fetch with optional 'since' parameter to strictly limit data ingress for delta polling.
- */
 export const fetchThreadMessages = async (conversationId: string, pageId: string, pageAccessToken: string, since?: number): Promise<Message[]> => {
   let url = `https://graph.facebook.com/v22.0/${conversationId}/messages?fields=id,message,created_time,from&access_token=${pageAccessToken}`;
   if (since) {
@@ -149,6 +143,7 @@ export const fetchThreadMessages = async (conversationId: string, pageId: string
   if (data.error) throw new Error(data.error.message);
 
   return (data.data || []).map((msg: any) => {
+    // CRITICAL: Prevent mirroring by checking if the sender ID matches the PAGE ID
     const isFromPage = msg.from.id === pageId;
     return {
       id: msg.id,
