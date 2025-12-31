@@ -1,17 +1,24 @@
 
 import React, { useState } from 'react';
-import { Search, MessageSquareOff, Facebook, ChevronLeft } from 'lucide-react';
+import { Search, MessageSquareOff, Facebook, ChevronLeft, RefreshCw, Loader2 } from 'lucide-react';
 import { useApp } from '../../store/AppContext';
 import { Conversation, ConversationStatus, UserRole } from '../../types';
 import ChatWindow from './ChatWindow';
 
 const InboxView: React.FC = () => {
-  const { conversations, currentUser, pages } = useApp();
+  const { conversations, currentUser, pages, syncMetaConversations, dbStatus } = useApp();
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
   const [filter, setFilter] = useState<ConversationStatus | 'ALL'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
+  const [isSyncing, setIsSyncing] = useState(false);
 
   const activeConv = conversations.find(c => c.id === activeConvId) || null;
+
+  const handleSync = async () => {
+    setIsSyncing(true);
+    await syncMetaConversations();
+    setIsSyncing(false);
+  };
 
   const visibleConversations = conversations.filter(conv => {
     const isAdmin = currentUser?.role === UserRole.SUPER_ADMIN;
@@ -33,14 +40,19 @@ const InboxView: React.FC = () => {
 
   return (
     <div className="flex h-[calc(100vh-140px)] md:h-[calc(100vh-180px)] bg-white overflow-hidden rounded-3xl md:rounded-[40px] border border-slate-100 shadow-2xl shadow-slate-200/40">
-      {/* Sidebar List - Hidden on mobile if chat is active */}
+      {/* Sidebar List */}
       <div className={`w-full md:w-80 border-r border-slate-100 flex flex-col bg-slate-50/30 ${activeConvId ? 'hidden md:flex' : 'flex'}`}>
-        <div className="p-4 md:p-6 space-y-4 md:space-y-5">
+        <div className="p-4 md:p-6 space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-bold text-slate-800 tracking-tight">Messages</h2>
-            <div className="px-2.5 py-1 bg-blue-600 text-white text-[10px] font-black rounded-lg uppercase tracking-wider">
-              {visibleConversations.length} Live
-            </div>
+            <button 
+              onClick={handleSync}
+              disabled={isSyncing}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-[9px] font-black rounded-lg uppercase tracking-wider hover:bg-blue-700 transition-all disabled:opacity-50"
+            >
+              {isSyncing ? <Loader2 size={10} className="animate-spin" /> : <RefreshCw size={10} />}
+              {isSyncing ? 'Syncing...' : 'Sync Meta'}
+            </button>
           </div>
           
           <div className="relative group">
@@ -121,17 +133,16 @@ const InboxView: React.FC = () => {
           ) : (
             <div className="flex flex-col items-center justify-center py-20 text-slate-300">
               <MessageSquareOff size={32} className="opacity-20 mb-3" />
-              <p className="text-[10px] font-black uppercase tracking-widest opacity-40">No messages</p>
+              <p className="text-[10px] font-black uppercase tracking-widest opacity-40 text-center px-4">No active conversations found. Try syncing.</p>
             </div>
           )}
         </div>
       </div>
 
-      {/* Chat Detail - Full screen on mobile if active */}
+      {/* Chat Detail */}
       <div className={`flex-1 bg-white relative ${!activeConvId ? 'hidden md:flex' : 'flex'}`}>
         {activeConv ? (
           <div className="flex flex-col w-full h-full">
-            {/* Mobile Back Button */}
             <button 
               onClick={() => setActiveConvId(null)}
               className="md:hidden absolute top-5 left-4 z-50 p-2 bg-slate-100 text-slate-600 rounded-full"
