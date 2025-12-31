@@ -4,7 +4,7 @@ import { FacebookPage } from '../types';
 /**
  * STEP 1: Replace this string with your App ID from https://developers.facebook.com
  */
-const FB_APP_ID = 'YOUR_FB_APP_ID'; 
+const FB_APP_ID = '1938499797069544'; 
 
 let sdkPromise: Promise<void> | null = null;
 
