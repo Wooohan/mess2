@@ -33,7 +33,6 @@ interface AppContextType {
   login: (email: string, password: string) => Promise<boolean>;
   logout: () => Promise<void>;
   syncMetaConversations: () => Promise<void>;
-  syncFullHistory: () => Promise<void>;
   verifyPageConnection: (pageId: string) => Promise<boolean>;
   simulateIncomingWebhook: (pageId: string) => Promise<void>;
   approvedLinks: ApprovedLink[];
@@ -201,39 +200,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
       for (const page of pages) {
         if (!page.accessToken) continue;
-        // Limit to 5 for fast "Sync Meta" (Recent only)
-        const metaConvs = await fetchPageConversations(page.id, page.accessToken, 5, true);
-        
-        for (const conv of metaConvs) {
-          const local = existingMap.get(conv.id);
-          if (local && local.customerAvatarBlob) {
-            conv.customerAvatarBlob = local.customerAvatarBlob;
-          } else if (conv.customerAvatar) {
-            const blob = await fetchAsBlob(conv.customerAvatar);
-            if (blob) conv.customerAvatarBlob = blob;
-          }
-          await dbService.put('conversations', conv);
-        }
-      }
-      const allConvs = await dbService.getAll<Conversation>('conversations');
-      setConversations(allConvs);
-    } catch (e) {
-      console.error("Sync failed", e);
-    } finally {
-      setDbStatus('connected');
-    }
-  };
-
-  const syncFullHistory = async () => {
-    if (pages.length === 0) return;
-    setDbStatus('syncing');
-    try {
-      const existingConvs = await dbService.getAll<Conversation>('conversations');
-      const existingMap = new Map(existingConvs.map(c => [c.id, c]));
-
-      for (const page of pages) {
-        if (!page.accessToken) continue;
-        // High limit for full history sync
         const metaConvs = await fetchPageConversations(page.id, page.accessToken, 100, true);
         
         for (const conv of metaConvs) {
@@ -252,8 +218,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setIsHistorySynced(true);
       localStorage.setItem(SYNCED_KEY, 'true');
     } catch (e) {
-      console.error("Full history sync failed", e);
-      throw e;
+      console.error("Sync failed", e);
     } finally {
       setDbStatus('connected');
     }
@@ -280,6 +245,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setDbStatus('syncing');
     try {
       await dbService.delete('conversations', id);
+      // Also delete all messages associated with this conversation
       const allMsgs = await dbService.getAll<Message>('messages');
       for (const msg of allMsgs) {
         if (msg.conversationId === id) {
@@ -444,7 +410,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           }
         }
       },
-      login, logout, syncMetaConversations, syncFullHistory, verifyPageConnection,
+      login, logout, syncMetaConversations, verifyPageConnection,
       simulateIncomingWebhook,
       approvedLinks, addApprovedLink, removeApprovedLink,
       approvedMedia, addApprovedMedia, removeApprovedMedia,
