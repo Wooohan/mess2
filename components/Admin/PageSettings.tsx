@@ -16,18 +16,22 @@ import {
   ExternalLink as LinkIcon,
   ShieldAlert,
   Terminal,
-  ArrowRight
+  ArrowRight,
+  Zap,
+  Loader2
 } from 'lucide-react';
 import { useApp } from '../../store/AppContext';
 import { loginWithFacebook, fetchUserPages, initFacebookSDK, isSecureOrigin, isAppIdConfigured } from '../../services/facebookService';
 import { FacebookPage, User } from '../../types';
 
 const PageSettings: React.FC = () => {
-  const { pages, addPage, removePage, updatePage, agents, simulateIncomingWebhook } = useApp();
+  const { pages, addPage, removePage, updatePage, agents, verifyPageConnection } = useApp();
   const [isConnecting, setIsConnecting] = useState(false);
   const [sdkReady, setSdkReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [assigningPage, setAssigningPage] = useState<FacebookPage | null>(null);
+  const [verifyingPageId, setVerifyingPageId] = useState<string | null>(null);
+  const [verificationResult, setVerificationResult] = useState<{id: string, success: boolean} | null>(null);
   
   const isSecure = isSecureOrigin();
   const isConfigured = isAppIdConfigured();
@@ -64,6 +68,17 @@ const PageSettings: React.FC = () => {
     }
   };
 
+  const handleVerify = async (pageId: string) => {
+    setVerifyingPageId(pageId);
+    setVerificationResult(null);
+    const success = await verifyPageConnection(pageId);
+    setVerificationResult({ id: pageId, success });
+    setVerifyingPageId(null);
+    
+    // Clear result after 3s
+    setTimeout(() => setVerificationResult(null), 3000);
+  };
+
   const toggleAgent = (pageId: string, agentId: string) => {
     const page = pages.find(p => p.id === pageId);
     if (!page) return;
@@ -95,7 +110,7 @@ const PageSettings: React.FC = () => {
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
         <div className="space-y-2">
           <h2 className="text-4xl font-extrabold text-slate-800 tracking-tight">Pages & Messaging</h2>
-          <p className="text-slate-500 text-lg max-w-xl">Link your Meta assets and assign support agents.</p>
+          <p className="text-slate-500 text-lg max-w-xl">Link your Meta assets and verify real-time connectivity.</p>
         </div>
         <div className="flex flex-col items-end gap-2">
            <button 
@@ -166,16 +181,6 @@ const PageSettings: React.FC = () => {
         </div>
       )}
 
-      {!pages.length && !error && (
-        <div className="bg-white p-20 rounded-[64px] border border-slate-100 shadow-sm text-center space-y-6">
-           <div className="w-24 h-24 bg-blue-50 text-blue-600 rounded-[40px] flex items-center justify-center mx-auto mb-4 animate-bounce">
-              <Facebook size={48} />
-           </div>
-           <h3 className="text-3xl font-black text-slate-800">Ready to Connect</h3>
-           <p className="text-slate-500 max-w-md mx-auto text-lg leading-relaxed">Click the connect button above to grant MessengerFlow access to your Facebook Business Pages.</p>
-        </div>
-      )}
-
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {pages.map((page) => (
           <div key={page.id} className="bg-white rounded-[48px] border border-slate-100 shadow-sm overflow-hidden flex flex-col group hover:shadow-2xl hover:border-blue-100 transition-all duration-500">
@@ -218,11 +223,22 @@ const PageSettings: React.FC = () => {
             
             <div className="mt-auto p-6 bg-slate-50/50 border-t border-slate-100 flex items-center gap-4">
                <button 
-                onClick={() => simulateIncomingWebhook(page.id)}
-                className="flex-1 py-4 text-[11px] font-black uppercase tracking-widest text-slate-700 bg-white border border-slate-200 rounded-2xl hover:bg-slate-900 hover:text-white transition-all shadow-sm flex items-center justify-center gap-2 group/test"
+                onClick={() => handleVerify(page.id)}
+                disabled={verifyingPageId === page.id}
+                className={`flex-1 py-4 text-[11px] font-black uppercase tracking-widest rounded-2xl transition-all shadow-sm flex items-center justify-center gap-2 border ${
+                   verificationResult?.id === page.id 
+                    ? (verificationResult.success ? 'bg-emerald-500 text-white border-emerald-600' : 'bg-red-500 text-white border-red-600')
+                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-900 hover:text-white'
+                }`}
                >
-                  <RefreshCw size={16} className="group-hover/test:rotate-180 transition-transform duration-500" />
-                  Test Live Incoming
+                  {verifyingPageId === page.id ? (
+                    <Loader2 size={16} className="animate-spin" />
+                  ) : verificationResult?.id === page.id ? (
+                    verificationResult.success ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />
+                  ) : (
+                    <Zap size={16} />
+                  )}
+                  {verifyingPageId === page.id ? 'Checking...' : verificationResult?.id === page.id ? (verificationResult.success ? 'Connected' : 'Token Invalid') : 'Verify Live Connectivity'}
                </button>
                <button 
                 onClick={() => removePage(page.id)} 
