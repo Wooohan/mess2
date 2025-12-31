@@ -1,6 +1,6 @@
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Send, X, Link as LinkIcon, Image as ImageIcon, Library, AlertCircle, ChevronDown, Check, MessageSquare, Loader2, ShieldAlert } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Send, X, Link as LinkIcon, Image as ImageIcon, Library, AlertCircle, ChevronDown, Check, MessageSquare, Loader2 } from 'lucide-react';
 import { Conversation, Message, ApprovedLink, ApprovedMedia, UserRole, ConversationStatus } from '../../types';
 import { useApp } from '../../store/AppContext';
 import { sendPageMessage, fetchThreadMessages } from '../../services/facebookService';
@@ -9,105 +9,58 @@ interface ChatWindowProps {
   conversation: Conversation;
 }
 
-const CachedAvatar: React.FC<{ conversation: Conversation, className?: string }> = ({ conversation, className }) => {
-  const [url, setUrl] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (conversation.customerAvatarBlob) {
-      const objectUrl = URL.createObjectURL(conversation.customerAvatarBlob);
-      setUrl(objectUrl);
-      return () => URL.revokeObjectURL(objectUrl);
-    }
-    setUrl(null);
-  }, [conversation.customerAvatarBlob]);
-
-  if (url) {
-    return (
-      <img 
-        src={url} 
-        className={className} 
-        alt="" 
-      />
-    );
-  }
-
-  return (
-    <div className={`${className} bg-slate-200 flex items-center justify-center text-slate-400 font-bold text-sm uppercase overflow-hidden`}>
-      {conversation.customerName.charAt(0)}
-    </div>
-  );
-};
-
 const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
-  const { currentUser, messages, bulkAddMessages, pages, approvedLinks, approvedMedia, updateConversation, isHistorySynced } = useApp();
+  const { currentUser, messages, addMessage, pages, approvedLinks, approvedMedia, updateConversation } = useApp();
   const [inputText, setInputText] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
   const [showLibrary, setShowLibrary] = useState(false);
   const [showStatusMenu, setShowStatusMenu] = useState(false);
-  const [showSecurityPopup, setShowSecurityPopup] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const chatMessages = useMemo(() => {
-    return messages
-      .filter(m => m.conversationId === conversation.id)
-      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-  }, [messages, conversation.id]);
+  const chatMessages = messages.filter(m => m.conversationId === conversation.id);
 
+  // Deep Sync: Fetch real messages from Meta whenever the conversation changes
   useEffect(() => {
-    let isMounted = true;
-    
-    const syncThread = async (isInitial = false) => {
+    const syncThread = async () => {
       const page = pages.find(p => p.id === conversation.pageId);
-      if (!page?.accessToken || !isMounted) return;
+      if (!page?.accessToken) return;
 
-      let sinceTimestamp: number | undefined = undefined;
-      // If we haven't manually synced, only pull messages from the last 10 minutes
-      if (!isHistorySynced && isInitial) {
-        sinceTimestamp = Math.floor(Date.now() / 1000) - 600; 
-      }
-
-      if (isInitial && chatMessages.length === 0) setIsLoadingMessages(true);
-      
+      setIsLoadingMessages(true);
       try {
-        const metaMsgs = await fetchThreadMessages(conversation.id, page.id, page.accessToken, sinceTimestamp);
-        if (isMounted) {
-          await bulkAddMessages(metaMsgs, true);
+        const metaMsgs = await fetchThreadMessages(conversation.id, page.accessToken);
+        // We rely on addMessage/db logic if we wanted persistence, but for immediate UI
+        // we'll just ensure they exist in the context. In a real app, you'd merge them.
+        for (const msg of metaMsgs) {
+          if (!messages.find(m => m.id === msg.id)) {
+            await addMessage(msg);
+          }
         }
       } catch (err) {
-        console.error("Delta poll failed", err);
+        console.error("Thread sync failed", err);
       } finally {
-        if (isInitial && isMounted) setIsLoadingMessages(false);
+        setIsLoadingMessages(false);
       }
     };
 
-    syncThread(true);
-    const poll = setInterval(() => syncThread(false), 8000); 
-    
-    return () => {
-      isMounted = false;
-      clearInterval(poll);
-    };
-  }, [conversation.id, isHistorySynced]); 
+    syncThread();
+  }, [conversation.id]);
 
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [chatMessages]);
 
   const blockRestrictedLinks = (text: string): boolean => {
+    if (currentUser?.role === UserRole.SUPER_ADMIN) return true;
     const urlPattern = /(https?:\/\/[^\s]+)/g;
     const foundUrls = text.match(urlPattern);
     if (!foundUrls) return true;
-
     const libraryUrls = [
-      ...approvedLinks.map(l => l.url.trim().toLowerCase()),
-      ...approvedMedia.map(m => m.url.trim().toLowerCase())
+      ...approvedLinks.map(l => l.url.toLowerCase()),
+      ...approvedMedia.map(m => m.url.toLowerCase())
     ];
-
-    return foundUrls.every(url => libraryUrls.includes(url.trim().toLowerCase()));
+    return foundUrls.every(url => libraryUrls.includes(url.toLowerCase()));
   };
 
   const handleSend = async (forcedText?: string) => {
@@ -115,7 +68,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
     if (!textToSubmit || isSending) return;
     
     if (!blockRestrictedLinks(textToSubmit)) {
-      setShowSecurityPopup(true);
+      setLastError('Security: Only pre-approved assets allowed.');
       return;
     }
 
@@ -123,23 +76,22 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
     setLastError(null);
     const currentPage = pages.find(p => p.id === conversation.pageId);
     
+    const newMessage: Message = {
+      id: `msg-${Date.now()}`,
+      conversationId: conversation.id,
+      senderId: currentUser?.id || 'unknown',
+      senderName: currentUser?.name || 'Agent',
+      text: textToSubmit,
+      timestamp: new Date().toISOString(),
+      isIncoming: false,
+      isRead: true,
+    };
+
     try {
       if (currentPage && currentPage.accessToken) {
-        const response = await sendPageMessage(conversation.customerId, textToSubmit, currentPage.accessToken);
-        
-        // Use the actual ID returned by Meta to prevent duplicates during next poll
-        const newMessage: Message = {
-          id: response.message_id || `msg-${Date.now()}`,
-          conversationId: conversation.id,
-          senderId: currentPage.id,
-          senderName: currentPage.name,
-          text: textToSubmit,
-          timestamp: new Date().toISOString(),
-          isIncoming: false,
-          isRead: true,
-        };
-        await bulkAddMessages([newMessage]);
+        await sendPageMessage(conversation.customerId, textToSubmit, currentPage.accessToken);
       }
+      await addMessage(newMessage);
       if (!forcedText) setInputText('');
       setShowLibrary(false);
     } catch (err: any) {
@@ -164,16 +116,17 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
   };
 
   return (
-    <div className="flex flex-col h-full bg-white relative overflow-hidden">
-      <div className="px-4 md:px-8 py-4 md:py-5 border-b border-slate-100 flex items-center justify-between bg-white/80 backdrop-blur-xl shrink-0 z-30">
+    <div className="flex flex-col h-full bg-white relative">
+      <div className="px-4 md:px-8 py-4 md:py-5 border-b border-slate-100 flex items-center justify-between bg-white/80 backdrop-blur-xl sticky top-0 z-30">
         <div className="flex items-center gap-3 md:gap-4 ml-10 md:ml-0">
           <div className="relative flex-shrink-0">
-            <CachedAvatar conversation={conversation} className="w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl object-cover shadow-sm bg-slate-100" />
+            <img src={conversation.customerAvatar} className="w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl object-cover shadow-sm" />
             <div className="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-green-500 border-2 border-white rounded-full"></div>
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <h3 className="font-bold text-slate-800 text-sm md:text-base truncate">{conversation.customerName}</h3>
+              {isLoadingMessages && <Loader2 size={12} className="animate-spin text-blue-400" />}
             </div>
             
             <div className="relative inline-block">
@@ -215,20 +168,19 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
         </div>
       </div>
 
-      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto p-4 md:p-8 space-y-4 md:space-y-6 bg-slate-50/20 custom-scrollbar">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 md:p-8 space-y-4 md:space-y-6 bg-slate-50/20">
         {chatMessages.length === 0 && !isLoadingMessages && (
           <div className="flex flex-col items-center justify-center py-20 text-slate-300 text-center">
             <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center shadow-sm border border-slate-100 mb-4">
               <MessageSquare size={24} className="opacity-20" />
             </div>
-            <p className="text-[10px] font-bold uppercase tracking-widest opacity-40">Direct Messenger Socket Active</p>
-            {!isHistorySynced && <p className="text-[8px] font-black uppercase tracking-tighter text-blue-500 mt-2">Sync Meta for historical records</p>}
+            <p className="text-[10px] font-bold uppercase tracking-widest opacity-40">Direct Conversation Active</p>
           </div>
         )}
         {isLoadingMessages && chatMessages.length === 0 && (
           <div className="flex flex-col items-center justify-center py-20 text-blue-400/50">
             <Loader2 size={32} className="animate-spin mb-4" />
-            <p className="text-[10px] font-black uppercase tracking-widest">Bridging Facebook Channel...</p>
+            <p className="text-[10px] font-black uppercase tracking-widest">Pulling History from Meta...</p>
           </div>
         )}
         {chatMessages.map((msg) => (
@@ -247,10 +199,10 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
         ))}
       </div>
 
-      <div className="p-4 md:p-8 border-t border-slate-100 bg-white shrink-0">
+      <div className="p-4 md:p-8 border-t border-slate-100 bg-white relative">
         {lastError && (
-          <div className="mb-4 p-4 bg-red-600 text-white text-xs font-black rounded-2xl flex items-center gap-3 animate-shake shadow-xl shadow-red-200 border border-red-700">
-            <AlertCircle size={20} className="flex-shrink-0" /> {lastError}
+          <div className="mb-4 p-3 bg-red-50 text-red-600 text-[10px] font-bold rounded-xl flex items-center gap-2 animate-in shake border border-red-100">
+            <AlertCircle size={14} /> {lastError}
           </div>
         )}
 
@@ -316,26 +268,6 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation }) => {
            </button>
         </div>
       </div>
-
-      {showSecurityPopup && (
-        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-xl z-[200] flex items-center justify-center p-6 animate-in fade-in">
-           <div className="bg-white rounded-[48px] shadow-2xl w-full max-w-sm p-10 text-center animate-in zoom-in-95 border-b-8 border-red-500">
-              <div className="w-20 h-20 bg-red-100 text-red-600 rounded-[32px] flex items-center justify-center mx-auto mb-6 shadow-xl shadow-red-100">
-                 <ShieldAlert size={40} />
-              </div>
-              <h3 className="text-2xl font-black text-slate-800 tracking-tight uppercase mb-4">Security Violation</h3>
-              <p className="text-slate-500 text-sm leading-relaxed mb-8">
-                 You are attempting to send a <span className="text-red-600 font-black">Restricted URL</span>. Agents are strictly prohibited from sending external links not present in the verified library.
-              </p>
-              <button 
-                onClick={() => setShowSecurityPopup(false)}
-                className="w-full py-5 bg-slate-900 text-white rounded-3xl font-black uppercase tracking-widest hover:bg-red-600 transition-all shadow-xl active:scale-95"
-              >
-                I Understand
-              </button>
-           </div>
-        </div>
-      )}
     </div>
   );
 };
