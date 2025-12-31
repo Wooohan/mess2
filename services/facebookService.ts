@@ -93,17 +93,24 @@ export const fetchUserPages = async (): Promise<FacebookPage[]> => {
   });
 };
 
+/**
+ * Fetches conversations with detailed participant info for profile pictures
+ */
 export const fetchPageConversations = async (pageId: string, pageAccessToken: string): Promise<Conversation[]> => {
-  const url = `https://graph.facebook.com/v22.0/${pageId}/conversations?fields=id,snippet,updated_time,participants,unread_count&access_token=${pageAccessToken}`;
+  // Requesting participants with name and id specifically
+  const url = `https://graph.facebook.com/v22.0/${pageId}/conversations?fields=id,snippet,updated_time,participants{id,name},unread_count&access_token=${pageAccessToken}`;
   const response = await fetch(url);
   const data = await response.json();
   
   if (data.error) throw new Error(data.error.message);
 
   return (data.data || []).map((conv: any) => {
-    const customer = conv.participants?.data?.find((p: any) => p.id !== pageId) || { name: 'Unknown User', id: 'unknown' };
-    // Use the redirecting picture URL for easy avatar loading
-    const avatarUrl = `https://graph.facebook.com/v22.0/${customer.id}/picture?type=large&access_token=${pageAccessToken}`;
+    // The participant that isn't the page itself is the customer
+    const customer = conv.participants?.data?.find((p: any) => p.id !== pageId) || { name: 'Messenger User', id: 'unknown' };
+    
+    // Construct authorized picture URL using PSID and Page Token
+    // We use a large type and square ratio for high quality
+    const avatarUrl = `https://graph.facebook.com/v22.0/${customer.id}/picture?type=large&width=300&height=300&access_token=${pageAccessToken}`;
     
     return {
       id: conv.id,
