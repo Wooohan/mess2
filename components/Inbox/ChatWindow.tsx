@@ -21,29 +21,39 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation, onDelete }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const isAdmin = currentUser?.role === UserRole.SUPER_ADMIN;
-  const chatMessages = useMemo(() => messages.filter(m => m.conversationId === conversation.id), [messages, conversation.id]);
+  const chatMessages = useMemo(() => 
+    messages
+      .filter(m => m.conversationId === conversation.id)
+      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+  , [messages, conversation.id]);
 
+  // Deep Sync: Fetch real messages from Meta whenever the conversation changes
   useEffect(() => {
+    let isMounted = true;
     const syncThread = async () => {
       const page = pages.find(p => p.id === conversation.pageId);
       if (!page?.accessToken) return;
 
-      setIsLoadingMessages(true);
+      if (chatMessages.length === 0) setIsLoadingMessages(true);
       try {
         const metaMsgs = await fetchThreadMessages(conversation.id, page.id, page.accessToken);
-        for (const msg of metaMsgs) {
-          if (!messages.find(m => m.id === msg.id)) {
-            await addMessage(msg);
+        if (isMounted) {
+          for (const msg of metaMsgs) {
+            // Check if message exists already to prevent duplicates
+            if (!messages.find(m => m.id === msg.id)) {
+              await addMessage(msg);
+            }
           }
         }
       } catch (err) {
         console.error("Thread sync failed", err);
       } finally {
-        setIsLoadingMessages(false);
+        if (isMounted) setIsLoadingMessages(false);
       }
     };
 
     syncThread();
+    return () => { isMounted = false; };
   }, [conversation.id, pages]);
 
   useEffect(() => {
@@ -127,7 +137,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation, onDelete }) => {
       <div className="px-4 md:px-8 py-4 md:py-5 border-b border-slate-100 flex items-center justify-between bg-white/80 backdrop-blur-xl sticky top-0 z-30">
         <div className="flex items-center gap-3 md:gap-4 ml-10 md:ml-0">
           <div className="relative flex-shrink-0">
-            <img src={conversation.customerAvatar} className="w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl object-cover shadow-sm" />
+            <img src={conversation.customerAvatar} className="w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl object-cover shadow-sm bg-slate-100" />
             <div className="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-green-500 border-2 border-white rounded-full"></div>
           </div>
           <div className="min-w-0">
@@ -185,7 +195,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation, onDelete }) => {
         )}
       </div>
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 md:p-8 space-y-4 md:space-y-6 bg-slate-50/20">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 md:p-8 space-y-4 md:space-y-6 bg-slate-50/20 custom-scrollbar">
         {chatMessages.length === 0 && !isLoadingMessages && (
           <div className="flex flex-col items-center justify-center py-20 text-slate-300 text-center">
             <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center shadow-sm border border-slate-100 mb-4">
@@ -218,7 +228,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ conversation, onDelete }) => {
 
       <div className="p-4 md:p-8 border-t border-slate-100 bg-white relative">
         {lastError && (
-          <div className="mb-4 p-3 bg-red-50 text-red-600 text-[10px] font-bold rounded-xl flex items-center gap-2 animate-in shake border border-red-100">
+          <div className="mb-4 p-3 bg-red-50 text-red-600 text-[10px] font-bold rounded-xl flex items-center gap-2 animate-shake border border-red-100">
             <AlertCircle size={14} /> {lastError}
           </div>
         )}
